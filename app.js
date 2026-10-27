@@ -80,7 +80,15 @@ function render(){
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
   renderForecasts();renderMatchFeed();
-  $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
+  $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
+  const research=state.research;
+  $('#research-panel').hidden=!research;
+  if(research){
+    const test=research.splits.test;
+    $('#research-period').textContent='Отложенный период: '+test.from+' — '+test.to+' · '+test.n+' матчей · обучение: '+research.splits.training.n+' · калибровка: '+research.splits.calibration.n;
+    $('#research-verdict').textContent=research.outcome==='baseline_better'?'В этой проверке CatBoost уступил простому Elo. Модель сохранена для исследования; виртуальные позиции по ней не открываются.':'На этой исторической выборке CatBoost снизил log loss относительно Elo. Для допуска к виртуальным позициям нужна дополнительная проверка.';
+    $('#research-metrics').innerHTML=table(['МЕТОД','LOG LOSS ↓','BRIER ↓','ДОЛЯ ВЕРНЫХ ИСХОДОВ'],Object.entries(research.metrics).map(([name,m])=>'<tr>'+[esc(name),num(m.log_loss),num(m.brier),pct(m.accuracy)].map(cell).join('')+'</tr>'));
+  }
   $('#quality-note').textContent=state.quality_note;$('#cohort').textContent='N = '+state.common_cohort;
   $('#calibration').innerHTML=b.quality.n?table(['ДИАПАЗОН P','N','СРЕДНЯЯ P','ЧАСТОТА ПОБЕД'],b.quality.calibration.map(x=>'<tr>'+[`${pct(x.lower)}–${pct(x.lower+.1)}`,x.n,pct(x.predicted),pct(x.observed)].map(cell).join('')+'</tr>')):empty('Качество ещё не измерено','Нужны предматчевые прогнозы всех моделей и подтверждённые результаты.');
   $('#integrity').textContent=state.integrity_ok?'✓ ПРОВЕРЕНО ПРИ ПУБЛИКАЦИИ':'НАРУШЕНА ЦЕЛОСТНОСТЬ';
