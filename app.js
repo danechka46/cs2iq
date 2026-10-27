@@ -89,6 +89,15 @@ function render(){
     $('#research-verdict').textContent=research.outcome==='baseline_better'?'В этой проверке CatBoost уступил простому Elo. Модель сохранена для исследования; виртуальные позиции по ней не открываются.':'На этой исторической выборке CatBoost снизил log loss относительно Elo. Для допуска к виртуальным позициям нужна дополнительная проверка.';
     $('#research-metrics').innerHTML=table(['МЕТОД','LOG LOSS ↓','BRIER ↓','ДОЛЯ ВЕРНЫХ ИСХОДОВ'],Object.entries(research.metrics).map(([name,m])=>'<tr>'+[esc(name),num(m.log_loss),num(m.brier),pct(m.accuracy)].map(cell).join('')+'</tr>'));
   }
+  const roster=research?.roster_experiment;
+  $('#roster-panel').hidden=!roster;
+  if(roster){
+    const test=roster.splits.test;
+    $('#roster-period').textContent=test.from+' — '+test.to+' · '+test.n+' матчей · обучение: '+roster.splits.training.n+' · калибровка: '+roster.splits.calibration.n;
+    $('#roster-verdict').textContent='На этих матчах история составов снизила ошибку CatBoost, но Elo сохранил меньший log loss. Устойчивое преимущество пока не доказано.';
+    const labels={'Elo':'Elo','CatBoost-rosters':'CatBoost · с составами','CatBoost-results':'CatBoost · без составов','Coin50':'Coin50'};
+    $('#roster-metrics').innerHTML=table(['МЕТОД','LOG LOSS ↓','BRIER ↓','ДОЛЯ ВЕРНЫХ ИСХОДОВ'],Object.entries(roster.metrics).map(([name,m])=>'<tr>'+[esc(labels[name]||name),num(m.log_loss),num(m.brier),pct(m.accuracy)].map(cell).join('')+'</tr>'));
+  }
   $('#quality-note').textContent=state.quality_note;$('#cohort').textContent='N = '+state.common_cohort;
   $('#calibration').innerHTML=b.quality.n?table(['ДИАПАЗОН P','N','СРЕДНЯЯ P','ЧАСТОТА ПОБЕД'],b.quality.calibration.map(x=>'<tr>'+[`${pct(x.lower)}–${pct(x.lower+.1)}`,x.n,pct(x.predicted),pct(x.observed)].map(cell).join('')+'</tr>')):empty('Качество ещё не измерено','Нужны предматчевые прогнозы всех моделей и подтверждённые результаты.');
   $('#integrity').textContent=state.integrity_ok?'✓ ПРОВЕРЕНО ПРИ ПУБЛИКАЦИИ':'НАРУШЕНА ЦЕЛОСТНОСТЬ';
