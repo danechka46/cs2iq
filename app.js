@@ -37,11 +37,11 @@ function renderForecasts(){
   const now=Date.now(),query=$('#home-search').value.toLowerCase(),model=$('#home-model').value;
   const upcoming=state.forecasts.filter(e=>!closed(e)&&+new Date(e.match.starts_at)>now);
   const active=state.forecasts.filter(e=>!closed(e)&&+new Date(e.match.starts_at)<=now);
-  $('#forecast-counters').innerHTML=[['ПРЕДСТОЯЩИХ ПОЗИЦИЙ',upcoming.length],['В ИГРЕ / ЖДУТ РАСЧЁТА',active.length],['ПОДКЛЮЧЕНО МОДЕЛЕЙ',state.registered_models.filter(m=>m!=='Coin50').length+' / 4']].map(([label,value])=>`<div><strong>${value}</strong><span>${label}</span></div>`).join('');
+  $('#forecast-counters').innerHTML=[['ПРЕДСТОЯЩИХ ПОЗИЦИЙ',upcoming.length],['В ИГРЕ / ЖДУТ РАСЧЁТА',active.length],['МОДЕЛЕЙ В БАНКЕ',state.registered_models.filter(m=>m!=='Coin50').length+' / 4']].map(([label,value])=>`<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   let list=state.forecasts.filter(e=>(model==='all'||e.bank===model)&&JSON.stringify([e.match.teams,e.match.tournament]).toLowerCase().includes(query));
   list=list.filter(e=>filter==='closed'?closed(e):!closed(e)&&(filter==='upcoming'?+new Date(e.match.starts_at)>now:+new Date(e.match.starts_at)<=now));
   list.sort((a,b)=>filter==='upcoming'?+new Date(a.match.starts_at)-+new Date(b.match.starts_at):+new Date(b.fixed_at)-+new Date(a.fixed_at));
-  const emptyTitle=query?'По запросу ничего не найдено':filter==='closed'?'Завершённых прогнозов пока нет':filter==='active'?'Нет позиций в игре':'Предстоящих прогнозов пока нет';
+  const emptyTitle=query?'По запросу ничего не найдено':filter==='closed'?'Завершённых прогнозов пока нет':filter==='active'?'Нет позиций в игре':'Предстоящих позиций банка пока нет';
   $('#forecast-cards').innerHTML=list.length?list.map(e=>`<article class="forecast-card">
     <div class="forecast-card-top"><span>${esc(e.match.tournament)} · ${esc(e.match.format)}</span><span class="model-chip">${esc(e.bank)}${e.bank==='Coin50'?' · контроль':''}</span></div>
     <div class="match-time">${date(e.match.starts_at)} МСК</div><h3>${esc(e.match.teams[0])}<span>vs</span>${esc(e.match.teams[1])}</h3>
@@ -60,7 +60,7 @@ function renderMatchFeed(){
   const coverage=feed.coverage==='live_only'?'Открытый канал: только текущие матчи, не полное расписание.':'Текущие и предстоящие матчи.';
   $('#match-feed-status').textContent=coverage+' Снимок: '+date(feed.observed_at)+' МСК.'+(feed.status==='error'?' Новое обновление не удалось; показан предыдущий снимок.':stale?' Данные устарели.':' Обновление раз в час.');
   const labels={live:'В игре на момент снимка',upcoming:'Предстоящий матч',completed:'Завершён по данным источника'};
-  $('#match-feed-cards').innerHTML=feed.matches.length?feed.matches.map(m=>`<article class="schedule-card"><div class="schedule-top"><span>${esc(m.tournament)} · ${esc(m.format)}</span><span class="schedule-status">${esc(labels[m.status]||m.status)}</span></div><h3>${esc(m.teams[0])}<span>vs</span>${esc(m.teams[1])}</h3><div class="schedule-info"><span>Начало ${date(m.starts_at)} МСК</span>${m.score?`<b>Счёт по картам ${m.score.join(' : ')}</b>`:''}</div><div class="schedule-bottom"><span>Прогноз не рассчитан</span><small>Вероятность, EV и позиция появятся только после проверки модели и линии.</small></div></article>`).join(''):empty('В канале нет текущих матчей','Источник ответил успешно. Отсутствие матча в этом канале не означает отмену события.');
+  $('#match-feed-cards').innerHTML=feed.matches.length?feed.matches.map(m=>`<article class="schedule-card"><div class="schedule-top"><span>${esc(m.tournament)} · ${esc(m.format)}</span><span class="schedule-status">${esc(labels[m.status]||m.status)}</span></div><h3>${esc(m.teams[0])}<span>vs</span>${esc(m.teams[1])}</h3><div class="schedule-info"><span>Начало ${date(m.starts_at)} МСК</span>${m.score?`<b>Счёт по картам ${m.score.join(' : ')}</b>`:''}</div><div class="schedule-bottom"><span>Позиция банка не открыта</span><small>Вероятность, EV и позиция появятся только после проверки модели и линии.</small></div></article>`).join(''):empty('В канале нет текущих матчей','Источник ответил успешно. Отсутствие матча в этом канале не означает отмену события.');
 }
 function renderForward(){
   const data=state.research_forward;
@@ -88,7 +88,7 @@ function render(){
   $('#banks').innerHTML=state.banks.map(x=>`<button data-bank="${esc(x.name)}" class="${x.name===bank?'selected':''}">${esc(x.name)}${x.name==='Coin50'?' · контроль':''}</button>`).join('');
   const stale=Date.now()-new Date(state.generated_at)>2*3600000;
   const status=state.pipeline.status;
-  const label=stale?'Снимок давно не обновлялся':status==='ok'?'Последний цикл завершён':status==='waiting'?'Ожидаем первые прогнозы':'Обработка данных требует внимания';
+  const label=stale?'Снимок давно не обновлялся':status==='ok'?'Последний цикл завершён':status==='waiting'?(state.research_forward?'Исследовательские прогнозы работают':'Ожидаем первые прогнозы'):'Обработка данных требует внимания';
   const description=stale?'На экране последний сохранённый снимок. Смотрите время фиксации каждого прогноза.':status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены. Условные прогнозы всех карт и их статистика — ниже. Для позиций нужны букмекерские линии и допуск модели.':'Стенд доступен. Источники для прогнозов и обученные модели пока не подключены.'):status==='ok'?'Каждый опубликованный выбор прошёл фильтры и сохранён в виртуальном банке.':'Новые прогнозы могут задерживаться. Ранее зафиксированная история сохранена.';
   $('#status').innerHTML=`<span class="statusicon">${status==='ok'&&!stale?'✓':'Ⅱ'}</span><div><strong>${label}</strong><p>${description}</p></div><span class="pill">PAPER ONLY</span>`;
   $('#updated').textContent='Снимок '+date(state.generated_at)+' МСК';
@@ -103,7 +103,7 @@ function render(){
   renderForecasts();renderMatchFeed();renderForward();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
-  $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+' · с полностью подтверждёнными предматчевыми данными: '+mapData.training_ready_maps+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены исследовательские модели; время предматчевого выбора карт ещё нужно подтвердить.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
+  $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
   const research=state.research;
   $('#research-panel').hidden=!research;
   if(research){
