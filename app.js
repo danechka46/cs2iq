@@ -48,7 +48,7 @@ function renderForecasts(){
     <div class="pick"><span>ПОБЕДИТЕЛЬ МАТЧА</span><strong>${esc(e.quote.outcome)}</strong></div>
     <div class="pick-metrics"><div><span>Вероятность</span><b>${pct(e.prediction.p)}</b></div><div><span>Коэффициент</span><b>${esc(e.quote.odds)}</b></div><div><span>Ожидаемый EV</span><b class="positive">${pct(e.ev)}</b></div></div>
     <div class="pick-meta"><span>${esc(e.quote.bookmaker)} · линия ${date(e.quote.observed_at)}</span><span>Неопределённость ± ${pct(e.prediction.uncertainty)}</span><span>Версия ${esc(e.prediction.version)} · зафиксировано ${date(e.fixed_at)} МСК</span></div>
-    <div class="pick-footer"><div><span>${esc(statuses[e.status])}</span><strong>${e.pnl==null?money(e.stake):money(e.pnl)+' P&L'}</strong></div><button data-detail="${esc(e.id)}">Обоснование ↗</button></div></article>`).join(''):empty(emptyTitle,query?'Попробуйте другое название матча или турнира.':state.pipeline.status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Линии и обученные модели ещё не готовы. Когда модель зафиксирует выбор, он появится здесь.':'Источники для прогноза и обученные модели ещё не подключены. Когда модель зафиксирует выбор, он появится здесь.'):'В этом разделе пока нет подходящих позиций. Прогнозы без пройденных фильтров не публикуются.');
+    <div class="pick-footer"><div><span>${esc(statuses[e.status])}</span><strong>${e.pnl==null?money(e.stake):money(e.pnl)+' P&L'}</strong></div><button data-detail="${esc(e.id)}">Обоснование ↗</button></div></article>`).join(''):empty(emptyTitle,query?'Попробуйте другое название матча или турнира.':state.pipeline.status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены; для позиций нужны проверка на новых матчах и линии. Когда модель зафиксирует выбор, он появится здесь.':'Источники для прогноза и обученные модели ещё не подключены. Когда модель зафиксирует выбор, он появится здесь.'):'В этом разделе пока нет подходящих позиций. Прогнозы без пройденных фильтров не публикуются.');
 }
 function renderMatchFeed(){
   const feed=state.match_feed;
@@ -68,7 +68,7 @@ function render(){
   const stale=Date.now()-new Date(state.generated_at)>2*3600000;
   const status=state.pipeline.status;
   const label=stale?'Снимок давно не обновлялся':status==='ok'?'Последний цикл завершён':status==='waiting'?'Ожидаем первые прогнозы':'Обработка данных требует внимания';
-  const description=stale?'На экране последний сохранённый снимок. Смотрите время фиксации каждого прогноза.':status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Букмекерские линии и модели для прогнозов ещё не готовы.':'Стенд доступен. Источники для прогнозов и обученные модели пока не подключены.'):status==='ok'?'Каждый опубликованный выбор прошёл фильтры и сохранён в виртуальном банке.':'Новые прогнозы могут задерживаться. Ранее зафиксированная история сохранена.';
+  const description=stale?'На экране последний сохранённый снимок. Смотрите время фиксации каждого прогноза.':status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены. Для автоматических позиций нужны проверка на новых матчах и букмекерские линии.':'Стенд доступен. Источники для прогнозов и обученные модели пока не подключены.'):status==='ok'?'Каждый опубликованный выбор прошёл фильтры и сохранён в виртуальном банке.':'Новые прогнозы могут задерживаться. Ранее зафиксированная история сохранена.';
   $('#status').innerHTML=`<span class="statusicon">${status==='ok'&&!stale?'✓':'Ⅱ'}</span><div><strong>${label}</strong><p>${description}</p></div><span class="pill">PAPER ONLY</span>`;
   $('#updated').textContent='Снимок '+date(state.generated_at)+' МСК';
   $('#public-updated')?.remove();
@@ -82,7 +82,7 @@ function render(){
   renderForecasts();renderMatchFeed();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
-  $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+' · готовы для предматчевого обучения: '+mapData.training_ready_maps+'. Снимок: '+date(mapData.observed_at)+' МСК. История результатов получена; время предматчевого выбора карт ещё нужно подтвердить.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
+  $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+' · с полностью подтверждёнными предматчевыми данными: '+mapData.training_ready_maps+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены исследовательские модели; время предматчевого выбора карт ещё нужно подтвердить.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
   const research=state.research;
   $('#research-panel').hidden=!research;
   if(research){
@@ -90,6 +90,15 @@ function render(){
     $('#research-period').textContent='Отложенный период: '+test.from+' — '+test.to+' · '+test.n+' матчей · обучение: '+research.splits.training.n+' · калибровка: '+research.splits.calibration.n;
     $('#research-verdict').textContent=research.outcome==='baseline_better'?'В этой проверке CatBoost уступил простому Elo. Модель сохранена для исследования; виртуальные позиции по ней не открываются.':'На этой исторической выборке CatBoost снизил log loss относительно Elo. Для допуска к виртуальным позициям нужна дополнительная проверка.';
     $('#research-metrics').innerHTML=table(['МЕТОД','LOG LOSS ↓','BRIER ↓','ДОЛЯ ВЕРНЫХ ИСХОДОВ'],Object.entries(research.metrics).map(([name,m])=>'<tr>'+[esc(name),num(m.log_loss),num(m.brier),pct(m.accuracy)].map(cell).join('')+'</tr>'));
+  }
+  const maps=research?.map_experiment;
+  $('#map-research-panel').hidden=!maps;
+  if(maps){
+    $('#map-research-period').textContent='Обучение: '+maps.splits.training.maps+' карт · настройка вероятностей: '+maps.splits.calibration.maps+' · проверка: '+maps.splits.test.maps+' карт / '+maps.splits.test.matches+' серий · '+maps.splits.test.from+' — '+maps.splits.test.to;
+    $('#map-research-verdict').textContent='Победитель карты: в этой проверке модель уступила прогнозу 50/50. Тотал: распределение числа раундов немного улучшилось относительно частотной модели по картам. Два дня проверки не доказывают устойчивое преимущество.';
+    const labels={CatBoost:'CatBoost',Calibrated:'CatBoost после настройки вероятностей',Coin50:'50/50',MapFrequency:'Частоты результатов по карте'};
+    $('#map-winner-metrics').innerHTML=table(['ПОБЕДИТЕЛЬ КАРТЫ','LOG LOSS ↓','BRIER ↓','ВЕРНЫХ ИСХОДОВ'],Object.entries(maps.winner_metrics).map(([name,m])=>'<tr>'+[esc(labels[name]),num(m.log_loss),num(m.brier),pct(m.accuracy)].map(cell).join('')+'</tr>'));
+    $('#map-rounds-metrics').innerHTML=table(['ЧИСЛО РАУНДОВ','LOG LOSS ↓','ОШИБКА РАСПРЕДЕЛЕНИЯ ↓'],Object.entries(maps.rounds_metrics).map(([name,m])=>'<tr>'+[esc(labels[name]),num(m.log_loss),num(m.ranked_probability_score)].map(cell).join('')+'</tr>'));
   }
   const roster=research?.roster_experiment;
   $('#roster-panel').hidden=!roster;
