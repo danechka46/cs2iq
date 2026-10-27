@@ -81,6 +81,8 @@ function render(){
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
   renderForecasts();renderMatchFeed();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
+  const mapData=state.map_data;
+  $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+' · готовы для предматчевого обучения: '+mapData.training_ready_maps+'. Снимок: '+date(mapData.observed_at)+' МСК. История результатов получена; время предматчевого выбора карт ещё нужно подтвердить.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
   const research=state.research;
   $('#research-panel').hidden=!research;
   if(research){
