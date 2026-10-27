@@ -62,24 +62,34 @@ function renderMatchFeed(){
   const labels={live:'В игре на момент снимка',upcoming:'Предстоящий матч',completed:'Завершён по данным источника'};
   $('#match-feed-cards').innerHTML=feed.matches.length?feed.matches.map(m=>`<article class="schedule-card"><div class="schedule-top"><span>${esc(m.tournament)} · ${esc(m.format)}</span><span class="schedule-status">${esc(labels[m.status]||m.status)}</span></div><h3>${esc(m.teams[0])}<span>vs</span>${esc(m.teams[1])}</h3><div class="schedule-info"><span>Начало ${date(m.starts_at)} МСК</span>${m.score?`<b>Счёт по картам ${m.score.join(' : ')}</b>`:''}</div><div class="schedule-bottom"><span>Позиция банка не открыта</span><small>Вероятность, EV и позиция появятся только после проверки модели и линии.</small></div></article>`).join(''):empty('В канале нет текущих матчей','Источник ответил успешно. Отсутствие матча в этом канале не означает отмену события.');
 }
+function renderBookmakers(){
+  const data=state.bookmaker_odds;
+  if(!data){$('#bookmaker-status').textContent='Первый снимок коэффициентов ещё не опубликован.';return;}
+  $('#bookmaker-status').textContent='Фонбет · снимок '+date(data.observed_at)+' МСК · '+data.boards.length+' матчей · '+data.map_markets+' рынков карт · '+data.matched_matches+' матчей сопоставлено с прогнозами'+(data.status==='error'?' · обновление не удалось, предыдущий снимок':Date.now()-new Date(data.observed_at)>2*3600000?' · снимок устарел':'');
+  $('#bookmaker-cards').innerHTML=data.boards.length?data.boards.map(b=>`<details class="forward-match"><summary><strong>${esc(b.teams.join(' — '))}</strong><small>${date(b.starts_at)} МСК · ${b.match_link_status==='matched'?'Есть соответствующий прогноз':'Без однозначной связи с прогнозом'}</small></summary><p>${esc(b.competition)} · <a href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Источник: Фонбет ↗</a></p>${table(['КАРТА','П1 / П2','РОВНЫЙ ТОТАЛ','ТБ / ТМ'],b.maps.map(m=>'<tr>'+['№'+m.map_number,m.winner_odds?m.winner_odds.map(x=>Number(x).toFixed(2)).join(' / '):'—',m.balanced_total?String(m.balanced_total.line).replace('.',','):'Нет полной пары',m.balanced_total?[m.balanced_total.over_odds,m.balanced_total.under_odds].map(x=>Number(x).toFixed(2)).join(' / '):'—'].map(cell).join('')+'</tr>'))}</details>`).join(''):empty('Коэффициенты пока не получены','Автоматический цикл повторит получение при следующем обновлении.');
+}
 function renderForward(){
   const data=state.research_forward;
   if(!data){$('#forward-cards').innerHTML=empty('Ждём первый автоматический расчёт','Будут опубликованы условные прогнозы для каждой карты.');return;}
-  const select=$('#forward-line'),old=select.value||'20.5';
-  select.innerHTML=data.lines.map(line=>`<option value="${line}">${String(line).replace('.',',')}</option>`).join('');select.value=old;
+  const select=$('#forward-line'),old=select.value||(state.bookmaker_odds?.boards.length?'book':'20.5');
+  select.innerHTML='<option value="book">Ровная линия Фонбет</option>'+data.lines.map(line=>`<option value="${line}">${String(line).replace('.',',')}</option>`).join('');select.value=old;
   const line=select.value,filter=$('#forward-filter').value;
   const stale=Date.now()-new Date(data.last_run_at)>10*3600000;
   $('#forward-status').textContent='Расчёт '+date(data.last_run_at)+' МСК · '+data.conditional_matches+' серий ожидают · '+data.scored_maps+' сыгранных карт оценено'+(stale?' · обновление задерживается':'');
   const winner=data.winner_metrics,total=data.total_metrics[line];
-  $('#forward-stats').textContent=winner?'Статистика только заранее сохранённых прогнозов: '+winner.n+' карт · победитель: Brier '+num(winner.brier)+', верных '+pct(winner.accuracy)+' · ТБ '+line.replace('.',',')+': Brier '+num(total.brier):'Новая статистика пока пуста: первые результаты появятся после завершения матчей с заранее сохранёнными прогнозами.';
+  $('#forward-stats').textContent=winner?'Статистика только заранее сохранённых прогнозов: '+winner.n+' карт · победитель: Brier '+num(winner.brier)+', верных '+pct(winner.accuracy)+(total?' · ТБ '+line.replace('.',',')+': Brier '+num(total.brier):' · метрики выбранных букмекерских линий пока не ведутся'):'Новая статистика пока пуста: первые результаты появятся после завершения матчей с заранее сохранёнными прогнозами.';
   const labels={waiting:'Ожидаем игру / результат',settled:'Сыгранные карты рассчитаны',void:'Без оценки: отмена, технический исход или изменение матча',review:'Результат требует проверки'};
   const matches=data.matches.filter(m=>filter==='waiting'?m.status==='waiting':m.status!=='waiting');
   $('#forward-cards').innerHTML=matches.length?matches.map(m=>{
     const rows=m.status==='settled'?m.maps.filter(x=>x.status==='scored'):m.maps;
     const heading=esc(m.teams.join(' — '));
-    return `<details class="forward-match"><summary><strong>${heading}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(labels[m.status])}</small></summary><p class="muted">${esc(m.event)} · сохранено ${date(m.issued_at)} МСК · ${m.maps.length} сценариев${m.status==='settled'?' · '+rows.length+' сыграно, остальные без оценки':''}</p>${table(['КАРТА / НОМЕР','ПОБЕДИТЕЛЬ · ВЕРОЯТНОСТЬ','ТБ '+line.replace('.',',')+' · ВЕРОЯТНОСТЬ','РЕЗУЛЬТАТ'],rows.map(x=>{
-      const p=x.winner_probability,actual=x.actual;
-      return '<tr>'+[esc(x.map_name.replace('de_',''))+' · №'+x.map_number,esc(m.teams[p>=.5?0:1])+'<small>'+pct(Math.max(p,1-p))+'</small>',pct(x.over_probabilities[line]),actual?esc(actual.score.join(' : '))+'<small>'+actual.rounds_actual+' раундов · '+(actual.rounds_actual>Number(line)?'ТБ прошёл':'ТБ не прошёл')+'</small>':esc(x.status==='unplayed'?'Не сыграна':'Условный сценарий')].map(cell).join('')+'</tr>';
+    const board=state.bookmaker_odds?.boards.find(b=>b.forecast_id===m.id);
+    return `<details class="forward-match"><summary><strong>${heading}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(labels[m.status])}</small></summary><p class="muted">${esc(m.event)} · сохранено ${date(m.issued_at)} МСК · ${m.maps.length} сценариев${m.status==='settled'?' · '+rows.length+' сыграно, остальные без оценки':''}</p>${table(['КАРТА / НОМЕР','ПОБЕДИТЕЛЬ · ВЕРОЯТНОСТЬ',line==='book'?'РОВНЫЙ ТБ · ВЕРОЯТНОСТЬ':'ТБ '+line.replace('.',',')+' · ВЕРОЯТНОСТЬ','ФОНБЕТ · ТБ / ТМ','РЕЗУЛЬТАТ'],rows.map(x=>{
+      const p=x.winner_probability,actual=x.actual,q=board?.maps.find(y=>y.map_number===x.map_number),pair=q?.balanced_total;
+      const threshold=line==='book'?pair?.line:Number(line);
+      const probability=line==='book'?q?.conditional_over_probabilities?.[x.map_name]:x.over_probabilities[line];
+      const prices=pair&&threshold===pair.line?[pair.over_odds,pair.under_odds].map(v=>Number(v).toFixed(2)).join(' / '):'—';
+      return '<tr>'+[esc(x.map_name.replace('de_',''))+' · №'+x.map_number,esc(m.teams[p>=.5?0:1])+'<small>'+pct(Math.max(p,1-p))+'</small>',(threshold!=null?String(threshold).replace('.',',')+' · ':'')+pct(probability),prices,actual?esc(actual.score.join(' : '))+'<small>'+actual.rounds_actual+' раундов · '+(threshold==null?'Порог не выбран':actual.rounds_actual>threshold?'ТБ прошёл':actual.rounds_actual===threshold?'Возврат':'ТБ не прошёл')+'</small>':esc(x.status==='unplayed'?'Не сыграна':'Условный сценарий')].map(cell).join('')+'</tr>';
     }))}</details>`;
   }).join(''):empty('В этом разделе пока нет записей','Первые рассчитанные карты появятся после завершения матчей.');
 }
@@ -100,7 +110,7 @@ function render(){
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
-  renderForecasts();renderMatchFeed();renderForward();
+  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
   $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
