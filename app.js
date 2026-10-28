@@ -71,7 +71,32 @@ function renderBookmakers(){
 }
 
 
-function mapBreakdown(m,selection,board,openedComparisons=new Set()){
+
+function namedChoice(m,mapName,line,now=Date.now(),equity=10000000){
+  if(m.status!=='waiting')return {status:'closed'};
+  if(!Number.isFinite(new Date(m.starts_at).getTime()))return {status:'missing'};
+  if(now>=new Date(m.starts_at).getTime()-60000)return {status:'started'};
+  if(m.selected_model==='Coin50')return {status:'control'};
+  if(m.forecast_origin==='legacy')return {status:'legacy'};
+  const rows=m.maps.filter(x=>x.map_name===mapName);
+  if(!rows.length)return {status:'missing'};
+  const mean=xs=>xs.reduce((a,b)=>a+b,0)/xs.length;
+  const p=mean(rows.map(x=>x.winner_probability)),over=mean(rows.map(x=>x.over_probabilities[String(line)]));
+  const choices=[{market:'winner',team_index:0,p},{market:'winner',team_index:1,p:1-p},{market:'over',line,p:over}]
+    .filter(c=>Number.isFinite(c.p)&&c.p>=.60&&c.p<=1).sort((a,b)=>b.p-a.p);
+  if(!choices.length)return {status:'below_threshold'};
+  const choice=choices[0];
+  return {status:'conditional',...choice,min_odds:Math.ceil(Math.max(1.4,1.03/choice.p)*100-1e-9)/100,
+    stake:Math.max(0,Math.floor(equity*.01)),position_created:false,quote_confirmed:false};
+}
+function choiceCard(m,name,line,equity){
+  const c=namedChoice(m,name,line,Date.now(),equity);
+  const reasons={closed:'Матч уже рассчитан или отменён.',started:'До старта не осталось 60 секунд. Новые предматчевые позиции не открываем.',control:'Coin50 — контрольный метод, без рекомендаций.',legacy:'Это прежний сохранённый прогноз. Новые позиции по нему не открываем.',missing:'Нет сохранённой оценки карты.',below_threshold:'Ни один исход не прошёл исследовательский порог P ≥ 60%.'};
+  if(c.status!=='conditional')return '<section class="named-choice"><h4>Выбор модели · ставки нет</h4><p>'+esc(reasons[c.status])+'</p></section>';
+  const outcome=c.market==='winner'?'Победа '+m.teams[c.team_index]:'ТБ '+String(line).replace('.',',');
+  return '<section class="named-choice"><h4>Условный выбор модели</h4><strong>Если сыграют '+esc(name.replace('de_',''))+': '+esc(outcome)+'</strong><p>P модели '+pct(c.p)+' · минимальный коэффициент '+c.min_odds.toFixed(2)+' для оценочного EV ≥ 3%.</p><p>План позиции: '+money(c.stake)+' (1% капитала), если будут пройдены все проверки. Сейчас из банка ничего не списывается.</p><p class="choice-blocked"><b>Ставки нет:</b> название карты не связано с подтверждённой котировкой. Порог 60% — условие исследования, а не доказанная надёжность или прибыльность.</p></section>';
+}
+function mapBreakdown(m,selection,board,openedComparisons=new Set(),equity=10000000){
   const pool=new Set(['de_ancient','de_anubis','de_cache','de_dust2','de_inferno','de_mirage','de_nuke']);
   const names=[...new Set(m.maps.map(x=>x.map_name))].filter(name=>pool.has(name)).sort();
   const lines=[...new Set((board?.maps||[]).map(q=>q.balanced_total?.line).filter(x=>x!=null))];
@@ -88,7 +113,7 @@ function mapBreakdown(m,selection,board,openedComparisons=new Set()){
     const favorite=Math.abs(p-.5)<1e-9?'Равные шансы':'Фаворит: '+m.teams[p>.5?0:1];
     const comparisons=rows[0].models;
     const compare=comparisons?'<details class="map-model-comparison" data-comparison-key="'+esc(m.id+'_'+name)+'" '+(openedComparisons.has(m.id+'_'+name)?'open':'')+'><summary>Сравнить все 5 моделей</summary>'+table(['МОДЕЛЬ',m.teams[0],m.teams[1],'P(ТБ '+String(threshold).replace('.',',')+')'],Object.entries(comparisons).map(([name,v])=>'<tr>'+[esc(name)+(name===m.selected_model?' ●':''),pct(v.winner_probability),pct(1-v.winner_probability),pct(v.over_probabilities[String(threshold)])].map(cell).join('')+'</tr>'))+'</details>':'';
-    return `<article class="map-probability"><h3>${esc(name.replace('de_','').replace(/^./,x=>x.toUpperCase()))}</h3><p>${esc(favorite)}</p><div class="map-team-pair"><div><span>${esc(m.teams[0])}</span><strong class="${p>.5?'positive':''}">${pct(p)}</strong></div><div><span>${esc(m.teams[1])}</span><strong class="${p<.5?'positive':''}">${pct(1-p)}</strong></div></div><div class="map-win-bar" role="img" aria-label="${esc(m.teams[0])}: ${pct(p)}; ${esc(m.teams[1])}: ${pct(1-p)}"><span style="width:${p*100}%"></span></div><div class="map-total"><span>ТБ ${String(threshold).replace('.',',')} раунда</span><strong>${pct(over)}</strong></div><p class="map-total-scope">${esc(scope)} · с овертаймами</p>${compare}${actual?'<p class="map-result">Сыграна: '+esc(actual.score.join(' : '))+' · '+actual.rounds_actual+' раундов</p>':''}</article>`;
+    return `<article class="map-probability"><h3>${esc(name.replace('de_','').replace(/^./,x=>x.toUpperCase()))}</h3><p>${esc(favorite)}</p><div class="map-team-pair"><div><span>${esc(m.teams[0])}</span><strong class="${p>.5?'positive':''}">${pct(p)}</strong></div><div><span>${esc(m.teams[1])}</span><strong class="${p<.5?'positive':''}">${pct(1-p)}</strong></div></div><div class="map-win-bar" role="img" aria-label="${esc(m.teams[0])}: ${pct(p)}; ${esc(m.teams[1])}: ${pct(1-p)}"><span style="width:${p*100}%"></span></div><div class="map-total"><span>ТБ ${String(threshold).replace('.',',')} раунда</span><strong>${pct(over)}</strong></div><p class="map-total-scope">${esc(scope)} · с овертаймами</p>${choiceCard(m,name,threshold,equity)}${compare}${actual?'<p class="map-result">Сыграна: '+esc(actual.score.join(' : '))+' · '+actual.rounds_actual+' раундов</p>':''}</article>`;
   }).join('')+'</div>';
 }
 function availableFor(m,model){
@@ -120,7 +145,7 @@ function renderForward(){
     const available=availableFor(m,selectedModel);
     const matchStatus=m.status==='waiting'&&Date.now()>=new Date(m.starts_at)?'Начало по расписанию прошло · ждём результат':labels[m.status];
     const position=state.forecasts.find(p=>p.paper?.forecast_id===m.id||p.paper?.match_id===m.match_id);
-    return `<details class="forward-match" data-forecast-id="${esc(m.id)}" ${opened.has(m.id)?'open':''}><summary><strong>${esc(m.teams.join(' — '))}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(matchStatus)}${m.forecast_origin==='legacy'?' · сохранённый CatBoost':''}</small><span class="breakdown-link">Открыть роспись по названиям карт ↓</span></summary><p class="muted">${esc(m.event)} · прогноз сохранён ${date(m.issued_at)} МСК. Каждое название — отдельный сценарий; карта ещё может быть не выбрана. ${m.map_order_feature===false?'Модель '+esc(selectedModel)+' обучена без номера карты. Для каждого названия одна оценка; ниже можно сравнить все пять моделей.':'Показано среднее заранее сохранённых сценариев порядка с равными весами.'} Зелёным выделена команда-фаворит.</p>${available?mapBreakdown(m,line,board,openedComparisons):empty("Предматчевого прогноза "+selectedModel+" для этой игры нет","У этой модели нет заранее сохранённого прогноза на этот матч. Прежний прогноз CatBoost доступен; прогнозы задним числом не создаются.")+'<button data-show-catboost="'+esc(m.id)+'">Показать сохранённый CatBoost</button>'}${position?'<aside class="map-paper-note"><strong>Ранее зафиксированная позиция банка · прежняя версия модели</strong><p>'+esc(position.quote.outcome)+' · '+money(position.stake)+' · коэффициент '+position.quote.odds+'. Банк выбрал исход по минимальной оценке среди всех названий карт; это не означает, что карта уже выбрана.</p><button data-detail="'+esc(position.id)+'">Детали позиции</button></aside>':''}</details>`;
+    return `<details class="forward-match" data-forecast-id="${esc(m.id)}" ${opened.has(m.id)?'open':''}><summary><strong>${esc(m.teams.join(' — '))}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(matchStatus)}${m.forecast_origin==='legacy'?' · сохранённый CatBoost':''}</small><span class="breakdown-link">Открыть роспись по названиям карт ↓</span></summary><p class="muted">${esc(m.event)} · прогноз сохранён ${date(m.issued_at)} МСК. Каждое название — отдельный сценарий; карта ещё может быть не выбрана. ${m.map_order_feature===false?'Модель '+esc(selectedModel)+' обучена без номера карты. Для каждого названия одна оценка; ниже можно сравнить все пять моделей.':'Показано среднее заранее сохранённых сценариев порядка с равными весами.'} Зелёным выделена команда-фаворит.</p>${available?mapBreakdown(m,line,board,openedComparisons,state.research_paper?.equity??10000000):empty("Предматчевого прогноза "+selectedModel+" для этой игры нет","У этой модели нет заранее сохранённого прогноза на этот матч. Прежний прогноз CatBoost доступен; прогнозы задним числом не создаются.")+'<button data-show-catboost="'+esc(m.id)+'">Показать сохранённый CatBoost</button>'}${position?'<aside class="map-paper-note"><strong>Ранее зафиксированная позиция банка · прежняя версия модели</strong><p>'+esc(position.quote.outcome)+' · '+money(position.stake)+' · коэффициент '+position.quote.odds+'. Банк выбрал исход по минимальной оценке среди всех названий карт; это не означает, что карта уже выбрана.</p><button data-detail="'+esc(position.id)+'">Детали позиции</button></aside>':''}</details>`;
   }).join(''):empty('В этом разделе пока нет записей','Результаты появятся после завершения матчей.');
 }
 function openMatch(id){
@@ -152,7 +177,7 @@ function render(){
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
-  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();
+  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();renderSourceHealth();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':x.research?'Экспериментальные позиции карт':state.model_forecasts?.model_names.includes(x.name)?'Прогнозы карт работают · строгий банк отдельно':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
   $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
@@ -207,8 +232,9 @@ function renderPaper(){
   const r=state.research_paper,el=$('#paper-protocol');if(!el)return;
   el.hidden=!r;if(!r)return;
   $('#paper-description').textContent='Отдельный исследовательский банк CatBoost: победитель карты или ТБ по ровной линии Фонбет. Пока только карта №1, одна позиция на матч. Старт 100 000 ₽; размер 1% капитала, общий резерв до 10%. Название карты не выбирается заранее: используем минимальную оценку среди всех поддерживаемых карт. Это не доверительная граница; прибыльность модели не доказана.';
+  if(r.opening_enabled===false)$('#paper-description').textContent+=' Старый отбор новых позиций по карте №1 отключён. Открытые позиции рассчитываются; новые выборы по названиям карт пока условные.';
   $('#paper-audit').textContent='Журнал проверен · событий: '+r.events+' · '+r.head_hash.slice(0,16)+'… · фиксируем только свежие коэффициенты до старта серии; учитываем овертаймы. Исправления результатов сохраняются отдельными событиями.';
-  const rows=r.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc({OPENING:'Начало эксперимента',POLICY_UPDATE:'Переход на актуальный пул из 7 карт',POSITION:'Зафиксирована позиция',RESOLUTION:'Расчёт / исправление'}[e.kind]),esc(e.hash.slice(0,16))+'…'].map(cell).join('')+'</tr>');
+  const rows=r.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc({OPENING:'Начало эксперимента',POLICY_UPDATE:'Переход на актуальный пул из 7 карт',OPENING_CONTROL:'Новые позиции ждут подтверждения названия карты и котировки',POSITION:'Зафиксирована позиция',RESOLUTION:'Расчёт / исправление'}[e.kind]),esc(e.hash.slice(0,16))+'…'].map(cell).join('')+'</tr>');
   $('#paper-journal').innerHTML=table(['№','ВРЕМЯ · МСК','СОБЫТИЕ','ХЕШ'],rows);
   $('#paper-quick').innerHTML='<strong>'+r.positions_list.filter(p=>p.status==='active'||p.status==='review').length+' открытых исследовательских позиций · резерв '+money(r.reserved)+'</strong><p>Доступно '+money(r.available)+' · капитал '+money(r.equity)+'. Исход, сумма и коэффициент сохранены до игры.</p><button data-page="overview">Открыть банк и позиции ↗</button>';
 }
@@ -220,6 +246,17 @@ function renderSuiteComparison(){
   $('#suite-metrics').innerHTML=table(['МОДЕЛЬ','ПОБЕДИТЕЛЬ · LOG LOSS ↓','BRIER ↓','ВЕРНЫХ','РАУНДЫ · LOG LOSS ↓'],Object.entries(report.metrics).map(([name,v])=>'<tr>'+[esc(name),num(v.winner.log_loss),num(v.winner.brier),pct(v.winner.accuracy),num(v.rounds.log_loss)].map(cell).join('')+'</tr>'));
   const w=report.calibration_weights.XGBoost.winner,stack=report.stack_weights;
   $('#suite-weights').textContent='Вес XGBoost для победителя после настройки: '+pct(w)+'. При нулевом весе прогноз равен 50/50; это результат проверки, а не ошибка. ConvexStack: веса CatBoost / XGBoost / LightGBM для победителя '+stack.winner.map(pct).join(' / ')+', для раундов '+stack.rounds.map(pct).join(' / ')+'.';
+}
+
+
+function renderSourceHealth(){
+  const h=state.source_health,box=$('#source-health');if(!box)return;
+  box.hidden=!h;if(!h)return;
+  const labels={schedule:'Расписание',results:'Результаты',odds:'Коэффициенты',quota:'Квота API'};
+  const messages={not_configured:'ключ источника не настроен',collection_error:'ошибка обновления, сохранён предыдущий снимок',stale:'снимок давно не обновлялся',overdue:'есть матчи без подтверждённого результата более 18 часов',exhausted:'лимит запросов достигнут, новые запросы остановлены'};
+  const watch=h.result_watch;
+  box.innerHTML='<strong>'+(h.status==='attention'?'Нужно внимание к источникам':'Проверка источников работает')+'</strong><p>'+(h.alerts.length?h.alerts.map(a=>esc(labels[a.source])+': '+esc(messages[a.code])+(a.matches?' ('+a.matches+')':'')).join('<br>'):'Ошибок и просроченных снимков не обнаружено.')+'</p><p>Проверка результатов: '+date(watch?.checked_at)+' МСК. Дополнительные запросы — не чаще раза в 2 часа и до 6 в сутки. Квота: '+h.quota.used+' / '+h.quota.cap+' запросов в месяц.</p>';
+  box.classList.toggle('attention',h.status==='attention');
 }
 
 async function refresh(){
