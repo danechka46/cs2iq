@@ -1,5 +1,5 @@
  'use strict';
-let state, bank='ConvexStack', period='day', filter='upcoming', page='forecasts';
+let state, bank='Карты · исследование', period='day', filter='upcoming', page='forecasts';
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(n/100)+' ₽';
@@ -10,7 +10,7 @@ const empty=(title,desc)=>`<div class="empty"><div class="symbol">⌁</div><stro
 const table=(heads,rows)=>`<div class="table-wrap"><table><thead><tr>${heads.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 const cell=v=>`<td>${v}</td>`;
 const closed=e=>['won','lost','void','cancelled'].includes(e.status);
-const statuses={won:'Выигрыш',lost:'Проигрыш',void:'Возврат',cancelled:'Отмена',active:'Виртуальная позиция',pending:'Ждём подтверждения'};
+const statuses={review:'Результат на проверке',won:'Выигрыш',lost:'Проигрыш',void:'Возврат',cancelled:'Отмена',active:'Виртуальная позиция',pending:'Ждём подтверждения'};
 const titles={overview:'ML Банк',forecasts:'Прогнозы CS2',models:'Сравнение моделей',journal:'Журнал эксперимента',sources:'Источники и правила'};
 function nav(p,updateHash=true){
   if(!titles[p])p='forecasts'; page=p;
@@ -37,7 +37,7 @@ function renderForecasts(){
   const now=Date.now(),query=$('#home-search').value.toLowerCase(),model=$('#home-model').value;
   const upcoming=state.forecasts.filter(e=>!closed(e)&&+new Date(e.match.starts_at)>now);
   const active=state.forecasts.filter(e=>!closed(e)&&+new Date(e.match.starts_at)<=now);
-  $('#forecast-counters').innerHTML=[['ПРЕДСТОЯЩИХ ПОЗИЦИЙ',upcoming.length],['В ИГРЕ / ЖДУТ РАСЧЁТА',active.length],['МОДЕЛЕЙ В БАНКЕ',state.registered_models.filter(m=>m!=='Coin50').length+' / 4']].map(([label,value])=>`<div><strong>${value}</strong><span>${label}</span></div>`).join('');
+  $('#forecast-counters').innerHTML=[['ПРЕДСТОЯЩИХ ПОЗИЦИЙ',upcoming.length],['В ИГРЕ / ЖДУТ РАСЧЁТА',active.length],['МОДЕЛЕЙ СТРОГОГО ПРОТОКОЛА',state.registered_models.filter(m=>m!=='Coin50').length+' / 4']].map(([label,value])=>`<div><strong>${value}</strong><span>${label}</span></div>`).join('');
   let list=state.forecasts.filter(e=>(model==='all'||e.bank===model)&&JSON.stringify([e.match.teams,e.match.tournament]).toLowerCase().includes(query));
   list=list.filter(e=>filter==='closed'?closed(e):!closed(e)&&(filter==='upcoming'?+new Date(e.match.starts_at)>now:+new Date(e.match.starts_at)<=now));
   list.sort((a,b)=>filter==='upcoming'?+new Date(a.match.starts_at)-+new Date(b.match.starts_at):+new Date(b.fixed_at)-+new Date(a.fixed_at));
@@ -45,9 +45,9 @@ function renderForecasts(){
   $('#forecast-cards').innerHTML=list.length?list.map(e=>`<article class="forecast-card">
     <div class="forecast-card-top"><span>${esc(e.match.tournament)} · ${esc(e.match.format)}</span><span class="model-chip">${esc(e.bank)}${e.bank==='Coin50'?' · контроль':''}</span></div>
     <div class="match-time">${date(e.match.starts_at)} МСК</div><h3>${esc(e.match.teams[0])}<span>vs</span>${esc(e.match.teams[1])}</h3>
-    <div class="pick"><span>ПОБЕДИТЕЛЬ МАТЧА</span><strong>${esc(e.quote.outcome)}</strong></div>
-    <div class="pick-metrics"><div><span>Вероятность</span><b>${pct(e.prediction.p)}</b></div><div><span>Коэффициент</span><b>${esc(e.quote.odds)}</b></div><div><span>Ожидаемый EV</span><b class="positive">${pct(e.ev)}</b></div></div>
-    <div class="pick-meta"><span>${esc(e.quote.bookmaker)} · линия ${date(e.quote.observed_at)}</span><span>Неопределённость ± ${pct(e.prediction.uncertainty)}</span><span>Версия ${esc(e.prediction.version)} · зафиксировано ${date(e.fixed_at)} МСК</span></div>
+    <div class="pick"><span>${e.paper?'КАРТА №'+e.paper.map_number+' · ИССЛЕДОВАТЕЛЬСКИЙ ВЫБОР':'ПОБЕДИТЕЛЬ МАТЧА'}</span><strong>${esc(e.quote.outcome)}</strong></div>
+    <div class="pick-metrics"><div><span>${e.paper?'Минимальная P по картам':'Вероятность'}</span><b>${pct(e.prediction.p)}</b></div><div><span>Коэффициент</span><b>${esc(e.quote.odds)}</b></div><div><span>${e.paper?'Сценарная оценка EV':'Ожидаемый EV'}</span><b class="positive">${pct(e.ev)}</b></div></div>
+    <div class="pick-meta"><span>${esc(e.quote.bookmaker)} · линия ${date(e.quote.observed_at)}</span><span>${e.paper?'Оценки по картам '+pct(e.paper.p_min)+' — '+pct(e.paper.p_max)+' · преимущество не доказано':'Неопределённость ± '+pct(e.prediction.uncertainty)}</span><span>Версия ${esc(e.prediction.version)} · зафиксировано ${date(e.fixed_at)} МСК</span></div>
     <div class="pick-footer"><div><span>${esc(statuses[e.status])}</span><strong>${e.pnl==null?money(e.stake):money(e.pnl)+' P&L'}</strong></div><button data-detail="${esc(e.id)}">Обоснование ↗</button></div></article>`).join(''):empty(emptyTitle,query?'Попробуйте другое название матча или турнира.':state.pipeline.status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены; для позиций нужны проверка на новых матчах и линии. Когда модель зафиксирует выбор, он появится здесь.':'Источники для прогноза и обученные модели ещё не подключены. Когда модель зафиксирует выбор, он появится здесь.'):'В этом разделе пока нет подходящих позиций. Прогнозы без пройденных фильтров не публикуются.');
 }
 function renderMatchFeed(){
@@ -99,7 +99,7 @@ function render(){
   const stale=Date.now()-new Date(state.generated_at)>2*3600000;
   const status=state.pipeline.status;
   const label=stale?'Снимок давно не обновлялся':status==='ok'?'Последний цикл завершён':status==='waiting'?(state.research_forward?'Исследовательские прогнозы работают':'Ожидаем первые прогнозы'):'Обработка данных требует внимания';
-  const description=stale?'На экране последний сохранённый снимок. Смотрите время фиксации каждого прогноза.':status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены. Условные прогнозы всех карт и их статистика — ниже. Для позиций нужны букмекерские линии и допуск модели.':'Стенд доступен. Источники для прогнозов и обученные модели пока не подключены.'):status==='ok'?'Каждый опубликованный выбор прошёл фильтры и сохранён в виртуальном банке.':'Новые прогнозы могут задерживаться. Ранее зафиксированная история сохранена.';
+  const description=stale?'На экране последний сохранённый снимок. Смотрите время фиксации каждого прогноза.':status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены. Условные прогнозы всех карт и их статистика — ниже. Исследовательские позиции карт ведутся в отдельном виртуальном банке; строгий протокол показан отдельно.':'Стенд доступен. Источники для прогнозов и обученные модели пока не подключены.'):status==='ok'?'Каждый опубликованный выбор прошёл фильтры и сохранён в виртуальном банке.':'Новые прогнозы могут задерживаться. Ранее зафиксированная история сохранена.';
   $('#status').innerHTML=`<span class="statusicon">${status==='ok'&&!stale?'✓':'Ⅱ'}</span><div><strong>${label}</strong><p>${description}</p></div><span class="pill">PAPER ONLY</span>`;
   $('#updated').textContent='Снимок '+date(state.generated_at)+' МСК';
   $('#public-updated')?.remove();
@@ -110,8 +110,8 @@ function render(){
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
-  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();
-  $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
+  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();
+  $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':x.research?'Экспериментальные позиции карт':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
   $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
   const research=state.research;
@@ -147,6 +147,30 @@ function render(){
   $('#journal-table').innerHTML=table(['№','ВРЕМЯ · МСК','СОБЫТИЕ','БАНК','ХЕШ',''],state.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc(kinds[e.kind]||e.kind),esc(e.bank),esc(e.hash.slice(0,16))+'…',`<button data-detail="${esc(e.id)}">Открыть</button>`].map(cell).join('')+'</tr>'));
   $('#source-cards').innerHTML=`<article class="panel"><h2>ViewYourTeam</h2><span class="pill">${state.match_feed?.status==='ok'?'КАНАЛ ПОДКЛЮЧЁН':state.match_feed?.status==='error'?'ОШИБКА ОБНОВЛЕНИЯ':'НЕ ПОДКЛЮЧЁН'}</span><p class="muted">Текущие матчи для отображения с указанием источника. Эти данные не используются для обучения моделей или расчёта банка.</p><a href="https://viewyourteam.com/api-docs" target="_blank" rel="noopener noreferrer">Источник и условия ↗</a></article>`+Object.entries(state.sources).map(([name,at])=>`<article class="panel"><h2>${esc(name)}</h2><span class="pill">${at?'ЕСТЬ ПОЛУЧЕННЫЕ СНИМКИ':'ИСТОЧНИК НЕ ПОДКЛЮЧЁН'}</span><p class="muted">${at?'Последнее наблюдение: '+date(at)+' МСК':'Получение линии и условия использования ещё предстоит подтвердить.'}</p></article>`).join('');
 }
+
+function attachPaper(next){
+  const r=next.research_paper;if(!r)return;
+  next.banks.unshift({...r,research:true,return:r.pnl/r.initial,quality:{n:0,calibration:[],log_loss:null,brier:null,ece:null,brier_ci95:null}});
+  for(const p of r.positions_list){
+    const outcome='Карта №'+p.map_number+' · '+(p.market==='map_winner'?'Победа '+p.teams[p.team_index]:'ТБ '+String(p.line).replace('.',','));
+    next.forecasts.push({id:p.id,bank:r.name,fixed_at:p.fixed_at,stake:p.stake,ev:p.estimated_ev,status:p.status,pnl:p.pnl,
+      match:{teams:p.teams,tournament:'Исследовательский банк · название карты определится после veto',format:'Карта №'+p.map_number,starts_at:p.starts_at},
+      quote:{outcome,market:p.market,odds:p.odds,bookmaker:p.bookmaker,observed_at:p.quote_observed_at},
+      prediction:{p:p.p_min,version:p.model_version},paper:p,
+      explanation:'Минимальная оценка среди всех поддерживаемых карт. Это сценарный отбор, а не доверительная граница. Преимущество модели не доказано. Только виртуальная позиция.'});
+  }
+  if(!next.banks.some(x=>x.name===bank))bank=next.banks[0].name;
+}
+function renderPaper(){
+  const r=state.research_paper,el=$('#paper-protocol');if(!el)return;
+  el.hidden=!r;if(!r)return;
+  $('#paper-description').textContent='Отдельный исследовательский банк CatBoost: победитель карты или ТБ по ровной линии Фонбет. Пока только карта №1, одна позиция на матч. Старт 100 000 ₽; размер 1% капитала, общий резерв до 10%. Название карты не выбирается заранее: используем минимальную оценку среди всех поддерживаемых карт. Это не доверительная граница; прибыльность модели не доказана.';
+  $('#paper-audit').textContent='Журнал проверен · событий: '+r.events+' · '+r.head_hash.slice(0,16)+'… · фиксируем только свежие коэффициенты до старта серии; учитываем овертаймы. Исправления результатов сохраняются отдельными событиями.';
+  const rows=r.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc({OPENING:'Начало эксперимента',POSITION:'Зафиксирована позиция',RESOLUTION:'Расчёт / исправление'}[e.kind]),esc(e.hash.slice(0,16))+'…'].map(cell).join('')+'</tr>');
+  $('#paper-journal').innerHTML=table(['№','ВРЕМЯ · МСК','СОБЫТИЕ','ХЕШ'],rows);
+  $('#paper-quick').innerHTML='<strong>'+r.positions_list.filter(p=>p.status==='active'||p.status==='review').length+' открытых исследовательских позиций · резерв '+money(r.reserved)+'</strong><p>Доступно '+money(r.available)+' · капитал '+money(r.equity)+'. Исход, сумма и коэффициент сохранены до игры.</p><button data-page="overview">Открыть банк и позиции ↗</button>';
+}
+
 async function refresh(){
   $('#refresh').disabled=true;
   try{
@@ -154,7 +178,7 @@ async function refresh(){
     if(!response.ok)throw Error('HTTP '+response.status);
     const next=await response.json();
     if(next.schema_version!==1||!Array.isArray(next.forecasts)||!Array.isArray(next.banks))throw Error('Неподдерживаемый формат данных');
-    state=next;$('#error').hidden=true;render();
+    attachPaper(next);state=next;$('#error').hidden=true;render();
   }catch(e){$('#error').hidden=false;$('#error').textContent='Не удалось обновить снимок. Последние загруженные данные сохранены на экране. '+e.message;}
   finally{$('#refresh').disabled=false;}
 }
