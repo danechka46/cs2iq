@@ -27,7 +27,7 @@ function returnChart(b){const series=b.periods[period];if(!series.length)return 
 function positionTable(list){
   if(!list.length)return empty('Открытых позиций пока нет','Прогнозы появятся после подключения источников и моделей.');
   return table(['МАТЧ / ТУРНИР','ИСХОД','ВЕРОЯТНОСТЬ','КОЭФФ.','ПОЗИЦИЯ','EV','СТАТУС',''],list.map(e=>'<tr>'+[
-    `${esc(e.match.teams.join(' — '))}<small>${esc(e.match.tournament)} · ${esc(e.match.format)}</small>`,
+    `${e.paper?.forecast_id?'<button class="text-button" data-open-match="'+esc(e.paper.forecast_id)+'">'+esc(e.match.teams.join(' — '))+'</button>':esc(e.match.teams.join(' — '))}<small>${esc(e.match.tournament)} · ${esc(e.match.format)}</small>`,
     esc(e.quote.outcome),pct(e.prediction.p),`${esc(e.quote.odds)}<small>${esc(e.quote.bookmaker)}</small>`,
     money(e.stake),pct(e.ev),esc(statuses[e.status]),`<button data-detail="${esc(e.id)}">Почему ↗</button>`
   ].map(cell).join('')+'</tr>'));
@@ -46,6 +46,7 @@ function renderForecasts(){
     <div class="forecast-card-top"><span>${esc(e.match.tournament)} · ${esc(e.match.format)}</span><span class="model-chip">${esc(e.bank)}${e.bank==='Coin50'?' · контроль':''}</span></div>
     <div class="match-time">${date(e.match.starts_at)} МСК</div><h3>${esc(e.match.teams[0])}<span>vs</span>${esc(e.match.teams[1])}</h3>
     <div class="pick"><span>${e.paper?'КАРТА №'+e.paper.map_number+' · ИССЛЕДОВАТЕЛЬСКИЙ ВЫБОР':'ПОБЕДИТЕЛЬ МАТЧА'}</span><strong>${esc(e.quote.outcome)}</strong></div>
+    ${e.paper?.forecast_id?`<button class="text-button" data-open-match="${esc(e.paper.forecast_id)}">Роспись по всем названиям карт ↗</button>`:''}
     <div class="pick-metrics"><div><span>${e.paper?'Минимальная P по картам':'Вероятность'}</span><b>${pct(e.prediction.p)}</b></div><div><span>Коэффициент</span><b>${esc(e.quote.odds)}</b></div><div><span>${e.paper?'Сценарная оценка EV':'Ожидаемый EV'}</span><b class="positive">${pct(e.ev)}</b></div></div>
     <div class="pick-meta"><span>${esc(e.quote.bookmaker)} · линия ${date(e.quote.observed_at)}</span><span>${e.paper?'Оценки по картам '+pct(e.paper.p_min)+' — '+pct(e.paper.p_max)+' · преимущество не доказано':'Неопределённость ± '+pct(e.prediction.uncertainty)}</span><span>Версия ${esc(e.prediction.version)} · зафиксировано ${date(e.fixed_at)} МСК</span></div>
     <div class="pick-footer"><div><span>${esc(statuses[e.status])}</span><strong>${e.pnl==null?money(e.stake):money(e.pnl)+' P&L'}</strong></div><button data-detail="${esc(e.id)}">Обоснование ↗</button></div></article>`).join(''):empty(emptyTitle,query?'Попробуйте другое название матча или турнира.':state.pipeline.status==='waiting'?(state.match_feed?.status==='ok'?'Источник текущих матчей подключён. Исследовательские модели карт обучены; для позиций нужны проверка на новых матчах и линии. Когда модель зафиксирует выбор, он появится здесь.':'Источники для прогноза и обученные модели ещё не подключены. Когда модель зафиксирует выбор, он появится здесь.'):'В этом разделе пока нет подходящих позиций. Прогнозы без пройденных фильтров не публикуются.');
@@ -68,30 +69,50 @@ function renderBookmakers(){
   $('#bookmaker-status').textContent='Фонбет · снимок '+date(data.observed_at)+' МСК · '+data.boards.length+' матчей · '+data.map_markets+' рынков карт · '+data.matched_matches+' матчей сопоставлено с прогнозами'+(data.status==='error'?' · обновление не удалось, предыдущий снимок':Date.now()-new Date(data.observed_at)>2*3600000?' · снимок устарел':'');
   $('#bookmaker-cards').innerHTML=data.boards.length?data.boards.map(b=>`<details class="forward-match"><summary><strong>${esc(b.teams.join(' — '))}</strong><small>${date(b.starts_at)} МСК · ${b.match_link_status==='matched'?'Есть соответствующий прогноз':'Без однозначной связи с прогнозом'}</small></summary><p>${esc(b.competition)} · <a href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Источник: Фонбет ↗</a></p>${table(['КАРТА','П1 / П2','РОВНЫЙ ТОТАЛ','ТБ / ТМ'],b.maps.map(m=>'<tr>'+['№'+m.map_number,m.winner_odds?m.winner_odds.map(x=>Number(x).toFixed(2)).join(' / '):'—',m.balanced_total?String(m.balanced_total.line).replace('.',','):'Нет полной пары',m.balanced_total?[m.balanced_total.over_odds,m.balanced_total.under_odds].map(x=>Number(x).toFixed(2)).join(' / '):'—'].map(cell).join('')+'</tr>'))}</details>`).join(''):empty('Коэффициенты пока не получены','Автоматический цикл повторит получение при следующем обновлении.');
 }
+
+
+function mapBreakdown(m,selection,board){
+  const names=[...new Set(m.maps.map(x=>x.map_name))].sort();
+  const lines=[...new Set((board?.maps||[]).map(q=>q.balanced_total?.line).filter(x=>x!=null))];
+  const common=lines.length===1&&m.maps.every(x=>Number.isFinite(x.over_probabilities[String(lines[0])]))?lines[0]:null;
+  const threshold=selection==='book'?(common??20.5):Number(selection);
+  const scope=selection==='book'?(common!=null?'Одинаковый порог в доступных линиях Фонбет':lines.length>1?'Порог для просмотра · линии БК различаются':'Порог для просмотра · единой линии БК нет'):'Выбранный порог для просмотра';
+  const mean=values=>values.reduce((sum,p)=>sum+p,0)/values.length;
+  return '<div class="map-breakdown">'+names.map(name=>{
+    const rows=m.maps.filter(x=>x.map_name===name);
+    const actual=rows.find(x=>x.actual)?.actual;
+    if(m.status==='settled'&&!actual)return '';
+    const p=mean(rows.map(x=>x.winner_probability));
+    const over=mean(rows.map(x=>x.over_probabilities[String(threshold)]));
+    const favorite=Math.abs(p-.5)<1e-9?'Равные шансы':'Фаворит: '+m.teams[p>.5?0:1];
+    return `<article class="map-probability"><h3>${esc(name.replace('de_','').replace(/^./,x=>x.toUpperCase()))}</h3><p>${esc(favorite)}</p><div class="map-team-pair"><div><span>${esc(m.teams[0])}</span><strong class="${p>.5?'positive':''}">${pct(p)}</strong></div><div><span>${esc(m.teams[1])}</span><strong class="${p<.5?'positive':''}">${pct(1-p)}</strong></div></div><div class="map-win-bar" role="img" aria-label="${esc(m.teams[0])}: ${pct(p)}; ${esc(m.teams[1])}: ${pct(1-p)}"><span style="width:${p*100}%"></span></div><div class="map-total"><span>ТБ ${String(threshold).replace('.',',')} раунда</span><strong>${pct(over)}</strong></div><p class="map-total-scope">${esc(scope)} · с овертаймами</p>${actual?'<p class="map-result">Сыграна: '+esc(actual.score.join(' : '))+' · '+actual.rounds_actual+' раундов</p>':''}</article>`;
+  }).join('')+'</div>';
+}
 function renderForward(){
   const data=state.research_forward;
-  if(!data){$('#forward-cards').innerHTML=empty('Ждём первый автоматический расчёт','Будут опубликованы условные прогнозы для каждой карты.');return;}
-  const select=$('#forward-line'),old=select.value||(state.bookmaker_odds?.boards.length?'book':'20.5');
-  select.innerHTML='<option value="book">Ровная линия Фонбет</option>'+data.lines.map(line=>`<option value="${line}">${String(line).replace('.',',')}</option>`).join('');select.value=old;
+  if(!data){$('#forward-cards').innerHTML=empty('Ждём первый автоматический расчёт','Будет роспись вероятностей для каждого названия карты.');return;}
+  const opened=new Set([...document.querySelectorAll('#forward-cards details[open]')].map(x=>x.dataset.forecastId));
+  const select=$('#forward-line'),old=select.value||'book';
+  select.innerHTML='<option value="book">Общий порог Фонбет / просмотр 20,5 без общего порога</option>'+data.lines.map(line=>`<option value="${line}">ТБ ${String(line).replace('.',',')}</option>`).join('');select.value=old;
   const line=select.value,filter=$('#forward-filter').value;
   const stale=Date.now()-new Date(data.last_run_at)>10*3600000;
   $('#forward-status').textContent='Расчёт '+date(data.last_run_at)+' МСК · '+data.conditional_matches+' серий ожидают · '+data.scored_maps+' сыгранных карт оценено'+(stale?' · обновление задерживается':'');
-  const winner=data.winner_metrics,total=data.total_metrics[line];
-  $('#forward-stats').textContent=winner?'Статистика только заранее сохранённых прогнозов: '+winner.n+' карт · победитель: Brier '+num(winner.brier)+', верных '+pct(winner.accuracy)+(total?' · ТБ '+line.replace('.',',')+': Brier '+num(total.brier):' · метрики выбранных букмекерских линий пока не ведутся'):'Новая статистика пока пуста: первые результаты появятся после завершения матчей с заранее сохранёнными прогнозами.';
-  const labels={waiting:'Ожидаем игру / результат',settled:'Сыгранные карты рассчитаны',void:'Без оценки: отмена, технический исход или изменение матча',review:'Результат требует проверки'};
+  const winner=data.winner_metrics;
+  $('#forward-stats').textContent=winner?'По исходным сохранённым сценариям проверено '+winner.n+' сыгранных карт · Brier победителя '+num(winner.brier)+' · верных '+pct(winner.accuracy):'После игр проверим только реально сыгранные карты. Преимущество модели пока не доказано.';
+  const labels={waiting:'Ожидаем игру / результат',settled:'Сыгранные карты рассчитаны',void:'Отмена или изменение матча',review:'Результат требует проверки'};
   const matches=data.matches.filter(m=>filter==='waiting'?m.status==='waiting':m.status!=='waiting');
   $('#forward-cards').innerHTML=matches.length?matches.map(m=>{
-    const rows=m.status==='settled'?m.maps.filter(x=>x.status==='scored'):m.maps;
-    const heading=esc(m.teams.join(' — '));
     const board=state.bookmaker_odds?.boards.find(b=>b.forecast_id===m.id);
-    return `<details class="forward-match"><summary><strong>${heading}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(labels[m.status])}</small></summary><p class="muted">${esc(m.event)} · сохранено ${date(m.issued_at)} МСК · ${m.maps.length} сценариев${m.status==='settled'?' · '+rows.length+' сыграно, остальные без оценки':''}</p>${table(['КАРТА / НОМЕР','ПОБЕДИТЕЛЬ · ВЕРОЯТНОСТЬ',line==='book'?'РОВНЫЙ ТБ · ВЕРОЯТНОСТЬ':'ТБ '+line.replace('.',',')+' · ВЕРОЯТНОСТЬ','ФОНБЕТ · ТБ / ТМ','РЕЗУЛЬТАТ'],rows.map(x=>{
-      const p=x.winner_probability,actual=x.actual,q=board?.maps.find(y=>y.map_number===x.map_number),pair=q?.balanced_total;
-      const threshold=line==='book'?pair?.line:Number(line);
-      const probability=line==='book'?q?.conditional_over_probabilities?.[x.map_name]:x.over_probabilities[line];
-      const prices=pair&&threshold===pair.line?[pair.over_odds,pair.under_odds].map(v=>Number(v).toFixed(2)).join(' / '):'—';
-      return '<tr>'+[esc(x.map_name.replace('de_',''))+' · №'+x.map_number,esc(m.teams[p>=.5?0:1])+'<small>'+pct(Math.max(p,1-p))+'</small>',(threshold!=null?String(threshold).replace('.',',')+' · ':'')+pct(probability),prices,actual?esc(actual.score.join(' : '))+'<small>'+actual.rounds_actual+' раундов · '+(threshold==null?'Порог не выбран':actual.rounds_actual>threshold?'ТБ прошёл':actual.rounds_actual===threshold?'Возврат':'ТБ не прошёл')+'</small>':esc(x.status==='unplayed'?'Не сыграна':'Условный сценарий')].map(cell).join('')+'</tr>';
-    }))}</details>`;
-  }).join(''):empty('В этом разделе пока нет записей','Первые рассчитанные карты появятся после завершения матчей.');
+    const position=state.forecasts.find(p=>p.paper?.forecast_id===m.id);
+    return `<details class="forward-match" data-forecast-id="${esc(m.id)}" ${opened.has(m.id)?'open':''}><summary><strong>${esc(m.teams.join(' — '))}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(labels[m.status])}</small><span class="breakdown-link">Открыть роспись по названиям карт ↓</span></summary><p class="muted">${esc(m.event)} · прогноз сохранён ${date(m.issued_at)} МСК. Каждое название — отдельный сценарий; карта ещё может быть не выбрана. По каждому названию показана одна сводная оценка: среднее заранее сохранённых сценариев порядка с равными весами. Это допущение для просмотра, а не подтверждённая вероятность выбора карты. Зелёным выделена команда-фаворит.</p>${mapBreakdown(m,line,board)}${position?'<aside class="map-paper-note"><strong>Отдельная виртуальная позиция банка</strong><p>'+esc(position.quote.outcome)+' · '+money(position.stake)+' · коэффициент '+position.quote.odds+'. Банк выбрал исход по минимальной оценке среди всех названий карт; это не означает, что карта уже выбрана.</p><button data-detail="'+esc(position.id)+'">Детали позиции</button></aside>':''}</details>`;
+  }).join(''):empty('В этом разделе пока нет записей','Результаты появятся после завершения матчей.');
+}
+function openMatch(id){
+  const match=state.research_forward?.matches.find(m=>m.id===id);
+  if(!match)return;
+  $('#forward-filter').value=match.status==='waiting'?'waiting':'resolved';renderForward();nav('forecasts');
+  const detail=[...document.querySelectorAll('#forward-cards details')].find(d=>d.dataset.forecastId===id);
+  if(detail){detail.open=true;detail.scrollIntoView({block:'start',behavior:'smooth'});}
 }
 function render(){
   const b=state.banks.find(x=>x.name===bank);
@@ -155,7 +176,7 @@ function attachPaper(next){
   for(const p of r.positions_list){
     const outcome='Карта №'+p.map_number+' · '+(p.market==='map_winner'?'Победа '+p.teams[p.team_index]:'ТБ '+String(p.line).replace('.',','));
     next.forecasts.push({id:p.id,bank:r.name,fixed_at:p.fixed_at,stake:p.stake,ev:p.estimated_ev,status:p.status,pnl:p.pnl,
-      match:{teams:p.teams,tournament:'Исследовательский банк · название карты определится после veto',format:'Карта №'+p.map_number,starts_at:p.starts_at},
+      match:{teams:p.teams,tournament:'Отдельная виртуальная позиция банка',format:'Карта №'+p.map_number,starts_at:p.starts_at},
       quote:{outcome,market:p.market,odds:p.odds,bookmaker:p.bookmaker,observed_at:p.quote_observed_at},
       prediction:{p:p.p_min,version:p.model_version},paper:p,
       explanation:'Минимальная оценка среди всех поддерживаемых карт. Это сценарный отбор, а не доверительная граница. Преимущество модели не доказано. Только виртуальная позиция.'});
@@ -186,6 +207,7 @@ async function refresh(){
 document.addEventListener('click',e=>{
   const t=e.target.closest('button');if(!t)return;
   if(t.dataset.page)nav(t.dataset.page);
+  if(t.dataset.openMatch&&state)openMatch(t.dataset.openMatch);
   if(t.dataset.bank){bank=t.dataset.bank;render();}
   if(t.dataset.period){period=t.dataset.period;document.querySelectorAll('[data-period]').forEach(b=>b.classList.toggle('selected',b.dataset.period===period));if(state)render();}
   if(t.dataset.filter){filter=t.dataset.filter;document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('selected',b.dataset.filter===filter));renderForecasts();}
