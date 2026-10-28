@@ -72,7 +72,8 @@ function renderBookmakers(){
 
 
 function mapBreakdown(m,selection,board){
-  const names=[...new Set(m.maps.map(x=>x.map_name))].sort();
+  const pool=new Set(['de_ancient','de_anubis','de_cache','de_dust2','de_inferno','de_mirage','de_nuke']);
+  const names=[...new Set(m.maps.map(x=>x.map_name))].filter(name=>pool.has(name)).sort();
   const lines=[...new Set((board?.maps||[]).map(q=>q.balanced_total?.line).filter(x=>x!=null))];
   const common=lines.length===1&&m.maps.every(x=>Number.isFinite(x.over_probabilities[String(lines[0])]))?lines[0]:null;
   const threshold=selection==='book'?(common??20.5):Number(selection);
@@ -188,7 +189,7 @@ function renderPaper(){
   el.hidden=!r;if(!r)return;
   $('#paper-description').textContent='Отдельный исследовательский банк CatBoost: победитель карты или ТБ по ровной линии Фонбет. Пока только карта №1, одна позиция на матч. Старт 100 000 ₽; размер 1% капитала, общий резерв до 10%. Название карты не выбирается заранее: используем минимальную оценку среди всех поддерживаемых карт. Это не доверительная граница; прибыльность модели не доказана.';
   $('#paper-audit').textContent='Журнал проверен · событий: '+r.events+' · '+r.head_hash.slice(0,16)+'… · фиксируем только свежие коэффициенты до старта серии; учитываем овертаймы. Исправления результатов сохраняются отдельными событиями.';
-  const rows=r.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc({OPENING:'Начало эксперимента',POSITION:'Зафиксирована позиция',RESOLUTION:'Расчёт / исправление'}[e.kind]),esc(e.hash.slice(0,16))+'…'].map(cell).join('')+'</tr>');
+  const rows=r.journal.slice().reverse().map(e=>'<tr>'+[e.seq,date(e.at),esc({OPENING:'Начало эксперимента',POLICY_UPDATE:'Переход на актуальный пул из 7 карт',POSITION:'Зафиксирована позиция',RESOLUTION:'Расчёт / исправление'}[e.kind]),esc(e.hash.slice(0,16))+'…'].map(cell).join('')+'</tr>');
   $('#paper-journal').innerHTML=table(['№','ВРЕМЯ · МСК','СОБЫТИЕ','ХЕШ'],rows);
   $('#paper-quick').innerHTML='<strong>'+r.positions_list.filter(p=>p.status==='active'||p.status==='review').length+' открытых исследовательских позиций · резерв '+money(r.reserved)+'</strong><p>Доступно '+money(r.available)+' · капитал '+money(r.equity)+'. Исход, сумма и коэффициент сохранены до игры.</p><button data-page="overview">Открыть банк и позиции ↗</button>';
 }
