@@ -149,7 +149,7 @@ function render(){
 }
 
 function attachPaper(next){
-  const r=next.research_paper;if(!r)return;
+  const r=next.research_paper;if(!r){if(!next.banks.some(x=>x.name===bank))bank=next.banks[0].name;return;}
   next.banks.unshift({...r,research:true,return:r.pnl/r.initial,quality:{n:0,calibration:[],log_loss:null,brier:null,ece:null,brier_ci95:null}});
   for(const p of r.positions_list){
     const outcome='Карта №'+p.map_number+' · '+(p.market==='map_winner'?'Победа '+p.teams[p.team_index]:'ТБ '+String(p.line).replace('.',','));
