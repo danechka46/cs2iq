@@ -106,6 +106,7 @@ function render(){
   const stamp=document.createElement('p');stamp.id='public-updated';stamp.className='publication-stamp';stamp.textContent='Снимок: '+date(state.generated_at)+' МСК · обновление по расписанию раз в час';$('#status').after(stamp);
   $('#stats').innerHTML=[['Виртуальный капитал',money(b.equity),'Доходность банка '+pct(b.return)],['Доступный остаток',money(b.available),'Для новых виртуальных позиций'],['Зарезервировано',money(b.reserved),'Открытых позиций: '+state.forecasts.filter(e=>e.bank===bank&&!closed(e)).length],['Реализованный P&L',money(b.pnl),'ROI '+pct(b.roi)+' · рассчитано '+b.settled]].map(x=>`<div class="stat"><label>${x[0]}</label><strong>${x[1]}</strong><small>${x[2]}</small></div>`).join('');
   $('#equity-chart').innerHTML=chartCurve(b);$('#return-chart').innerHTML=returnChart(b);
+  $('#match-limit').textContent=b.research?'1% · одна позиция':'2%';
   $('#drawdown').textContent='Макс. просадка '+pct(b.max_drawdown);
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
