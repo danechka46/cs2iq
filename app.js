@@ -1,5 +1,5 @@
  'use strict';
-let state, bank='Карты · исследование', period='day', filter='upcoming', page='forecasts';
+let state, bank='CatBoost · условные', period='day', filter='upcoming', page='forecasts';
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(n/100)+' ₽';
@@ -72,6 +72,24 @@ function renderBookmakers(){
 
 
 
+function conditionalCard(m,name){
+  const data=typeof state==='undefined'?null:state?.conditional_paper;
+  const plan=data?.plans.find(p=>p.forecast_id===m.id&&p.model===m.selected_model);
+  if(!plan)return '';
+  return '<section class="named-choice"><h4>Зафиксировано до старта · '+esc(plan.model)+'</h4><p>'+date(plan.fixed_at)+' МСК · коэффициенты '+date(plan.quote_observed_at)+' МСК. После игры выбор не меняется.</p>'+plan.groups.map(g=>{
+    const c=g.choices[name],r=plan.result?.groups.find(x=>x.map_number===g.map_number);
+    const actual=r?.actual?.map_name;
+    const outcome=c?(c.market==='map_winner'?'Победа '+m.teams[c.team_index]:'ТБ '+String(c.line).replace('.',',')):'Пропуск';
+    const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',skip:'Пропуск по плану',not_played:'Не сыграна',cancelled:'Отмена',review:'Проверка результата'};
+    return '<p><b>Котировка БК для карты №'+g.map_number+': '+esc(outcome)+'</b>'+(c?' · P '+pct(c.p)+' · кф '+c.odds+' · '+money(g.stake):' · условия отбора не пройдены')+'<br>'+(r?(actual&&actual!==name?'Сыграна другая карта — этот вариант не входит в статистику.':esc(labels[r.status])):'Если эта карта сыграна на данном месте, учитываем этот сохранённый вариант; иначе пропуск.')+'</p>';
+  }).join('')+'<p>Резерв покрывает один вариант на место карты. Состав при фиксации: '+esc(plan.roster_status)+'. Только виртуальный эксперимент.</p></section>';
+}
+function renderConditional(){
+  const d=state.conditional_paper,el=$('#conditional-paper');if(!el)return;
+  el.hidden=!d;if(!d)return;
+  const reasons={no_fresh_quotes:'Нет свежего снимка коэффициентов',unmatched:'Матч не сопоставлен с линией',outside_window:'Матч вне предматчевого окна',legacy_forecast:'Нет новой версии прогноза',rules:'Правила котировки не подтверждены',known_roster_change:'Известны изменения состава',incomplete_maps:'Неполная роспись карт',risk_limit:'Лимит резерва'};
+  el.innerHTML='<h2>Условные ставки · автоматический эксперимент</h2><p>До старта фиксируем выбор для каждого названия карты и полученного коэффициента. Сыгранный вариант рассчитывается; остальные не входят в статистику. Резерв — 1% на возможную позицию, до 10% банка. Порог P ≥ 60% и оценочный EV ≥ 3% — условия исследования, не доказательство преимущества.</p>'+table(['МОДЕЛЬ','КАПИТАЛ','РЕЗЕРВ','РАССЧИТАНО','P&L'],d.banks.map(b=>'<tr>'+[esc(b.model),money(b.equity),money(b.reserved),b.settled,money(b.pnl)].map(cell).join('')+'</tr>'))+'<p>Сохранено планов: '+d.plans.length+'. '+(d.last_run?.new_plans?'Новых за цикл: '+d.last_run.new_plans+'. ':'')+Object.entries(d.last_run?.skipped||{}).map(([k,n])=>esc(reasons[k]||k)+': '+n).join(' · ')+'</p><p>Непроверенный состав явно помечается, но не останавливает этот условный исследовательский эксперимент. Известные изменения состава блокируют новый план. Старый банк карт сохранён отдельно.</p>';
+}
 function namedChoice(m,mapName,line,now=Date.now(),equity=10000000){
   if(m.status!=='waiting')return {status:'closed'};
   if(m.roster?.status==='reported_change'||m.roster?.status==='changed')return {status:'roster_changed'};
@@ -91,6 +109,7 @@ function namedChoice(m,mapName,line,now=Date.now(),equity=10000000){
     stake:Math.max(0,Math.floor(equity*.01)),position_created:false,quote_confirmed:false};
 }
 function choiceCard(m,name,line,equity){
+  const frozen=conditionalCard(m,name);if(frozen)return frozen;
   const c=namedChoice(m,name,line,Date.now(),equity);
   const reasons={roster_changed:'Состав изменён или есть сообщение о заменах. Новые позиции заблокированы; вероятности моделью не скорректированы.',closed:'Матч уже рассчитан или отменён.',started:'До старта не осталось 60 секунд. Новые предматчевые позиции не открываем.',control:'Coin50 — контрольный метод, без рекомендаций.',legacy:'Это прежний сохранённый прогноз. Новые позиции по нему не открываем.',missing:'Нет сохранённой оценки карты.',below_threshold:'Ни один исход не прошёл исследовательский порог P ≥ 60%.'};
   if(c.status!=='conditional')return '<section class="named-choice"><h4>Выбор модели · ставки нет</h4><p>'+esc(reasons[c.status])+'</p></section>';
@@ -122,7 +141,7 @@ function rosterNote(m){
   const reported=r.status==='reported_change',changed=r.status==='changed';
   let text=reported?'Сообщено о '+r.report.replacement_count+' заменах у '+r.report.team+'. Источник: сообщение пользователя, независимо не подтверждено. Отметка добавлена '+date(r.report.reported_at)+' МСК; она не была известна модели при фиксации прогноза.':changed?'Полученный состав отличается от ранее наблюдавшейся пятёрки. Это не подтверждает, что замены временные.':r.status==='unchanged_observed'?'Полученные пятёрки совпали с предыдущим наблюдением. Это не гарантия отсутствия изменений перед игрой.':r.status==='no_baseline'?'Пятёрки получены, но нет предыдущего состава для сравнения.':'Состав не проверен: нет свежих полных пятёрок обеих команд.';
   const players=(r.teams||[]).filter(t=>t.complete).map(t=>t.nicknames.map(esc).join(', ')).join(' / ');
-  return '<aside class="roster-note"><strong>'+(reported||changed?'Состав изменён — прогноз без учёта замен':'Составы · '+(r.status==='unchanged_observed'?'совпали с прошлым наблюдением':'не проверены'))+'</strong><p>'+esc(text)+'</p>'+(players?'<p>Пятёрки Cito: '+players+'. Снимок '+date(r.checked_at)+' МСК.</p>':'')+'<p>Текущие модели не используют игроков как признаки. '+(r.block_new_positions?'Новые виртуальные позиции заблокированы.':'Проверка состава сама по себе не разрешает ставку: остальные фильтры сохраняются.')+' Старые позиции и прогнозы сохраняются.</p></aside>';
+  return '<aside class="roster-note"><strong>'+(reported||changed?'Состав изменён — прогноз без учёта замен':'Составы · '+(r.status==='unchanged_observed'?'совпали с прошлым наблюдением':'не проверены'))+'</strong><p>'+esc(text)+'</p>'+(players?'<p>Пятёрки Cito: '+players+'. Снимок '+date(r.checked_at)+' МСК.</p>':'')+'<p>Текущие модели не используют игроков как признаки. '+(r.block_new_positions?'Обычные новые позиции заблокированы. В условном исследовании неизвестный состав отмечается отдельно; известные изменения блокируют новый план.':'Проверка состава сама по себе не разрешает ставку: остальные фильтры сохраняются.')+' Старые позиции и прогнозы сохраняются.</p></aside>';
 }
 function availableFor(m,model){
   return (m.available_models||Object.keys(m.maps?.[0]?.models||{CatBoost:true})).includes(model);
@@ -152,7 +171,7 @@ function renderForward(){
     const board=state.bookmaker_odds?.boards.find(b=>b.forecast_id===m.id);
     const available=availableFor(m,selectedModel);
     const matchStatus=m.status==='waiting'&&Date.now()>=new Date(m.starts_at)?'Начало по расписанию прошло · ждём результат':labels[m.status];
-    const position=state.forecasts.find(p=>p.paper?.forecast_id===m.id||p.paper?.match_id===m.match_id);
+    const position=state.forecasts.find(p=>!p.conditional&&(p.paper?.forecast_id===m.id||p.paper?.match_id===m.match_id));
     return `<details class="forward-match" data-forecast-id="${esc(m.id)}" ${opened.has(m.id)?'open':''}><summary><strong>${esc(m.teams.join(' — '))}</strong><small>${date(m.starts_at)} МСК · BO${m.best_of} · ${esc(matchStatus)}${m.forecast_origin==='legacy'?' · сохранённый CatBoost':''}</small><span class="breakdown-link">Открыть роспись по названиям карт ↓</span></summary><p class="muted">${esc(m.event)} · прогноз сохранён ${date(m.issued_at)} МСК. Каждое название — отдельный сценарий; карта ещё может быть не выбрана. ${m.map_order_feature===false?'Модель '+esc(selectedModel)+' обучена без номера карты. Для каждого названия одна оценка; ниже можно сравнить все пять моделей.':'Показано среднее заранее сохранённых сценариев порядка с равными весами.'} Зелёным выделена команда-фаворит.</p>${rosterNote(m)}${available?mapBreakdown(m,line,board,openedComparisons,state.research_paper?.equity??10000000):empty("Предматчевого прогноза "+selectedModel+" для этой игры нет","У этой модели нет заранее сохранённого прогноза на этот матч. Прежний прогноз CatBoost доступен; прогнозы задним числом не создаются.")+'<button data-show-catboost="'+esc(m.id)+'">Показать сохранённый CatBoost</button>'}${position?'<aside class="map-paper-note"><strong>Ранее зафиксированная позиция банка · прежняя версия модели</strong><p>'+esc(position.quote.outcome)+' · '+money(position.stake)+' · коэффициент '+position.quote.odds+'. Банк выбрал исход по минимальной оценке среди всех названий карт; это не означает, что карта уже выбрана.</p><button data-detail="'+esc(position.id)+'">Детали позиции</button></aside>':''}</details>`;
   }).join(''):empty('В этом разделе пока нет записей','Результаты появятся после завершения матчей.');
 }
@@ -178,14 +197,14 @@ function render(){
   $('#updated').textContent='Снимок '+date(state.generated_at)+' МСК';
   $('#public-updated')?.remove();
   const stamp=document.createElement('p');stamp.id='public-updated';stamp.className='publication-stamp';stamp.textContent='Снимок: '+date(state.generated_at)+' МСК · обновление по расписанию раз в час';$('#status').after(stamp);
-  $('#stats').innerHTML=[['Виртуальный капитал',money(b.equity),'Доходность банка '+pct(b.return)],['Доступный остаток',money(b.available),'Для новых виртуальных позиций'],['Зарезервировано',money(b.reserved),'Открытых позиций: '+state.forecasts.filter(e=>e.bank===bank&&!closed(e)).length],['Реализованный P&L',money(b.pnl),'ROI '+pct(b.roi)+' · рассчитано '+b.settled]].map(x=>`<div class="stat"><label>${x[0]}</label><strong>${x[1]}</strong><small>${x[2]}</small></div>`).join('');
+  $('#stats').innerHTML=[['Виртуальный капитал',money(b.equity),'Доходность банка '+pct(b.return)],['Доступный остаток',money(b.available),'Для новых виртуальных позиций'],['Зарезервировано',money(b.reserved),b.conditional?'Условных мест в резерве: '+b.pending_slots:'Открытых позиций: '+state.forecasts.filter(e=>e.bank===bank&&!closed(e)).length],['Реализованный P&L',money(b.pnl),'ROI '+pct(b.roi)+' · рассчитано '+b.settled]].map(x=>`<div class="stat"><label>${x[0]}</label><strong>${x[1]}</strong><small>${x[2]}</small></div>`).join('');
   $('#equity-chart').innerHTML=chartCurve(b);$('#return-chart').innerHTML=returnChart(b);
   $('#match-limit').textContent=b.research?'1% · одна позиция':'2%';
   $('#drawdown').textContent='Макс. просадка '+pct(b.max_drawdown);
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
-  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();renderSourceHealth();
+  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();renderSourceHealth();renderConditional();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':x.research?'Экспериментальные позиции карт':state.model_forecasts?.model_names.includes(x.name)?'Прогнозы карт работают · строгий банк отдельно':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
   $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
@@ -223,6 +242,20 @@ function render(){
   $('#source-cards').innerHTML=`<article class="panel"><h2>ViewYourTeam</h2><span class="pill">${state.match_feed?.status==='ok'?'КАНАЛ ПОДКЛЮЧЁН':state.match_feed?.status==='error'?'ОШИБКА ОБНОВЛЕНИЯ':'НЕ ПОДКЛЮЧЁН'}</span><p class="muted">Текущие матчи для отображения с указанием источника. Эти данные не используются для обучения моделей или расчёта банка.</p><a href="https://viewyourteam.com/api-docs" target="_blank" rel="noopener noreferrer">Источник и условия ↗</a></article>`+Object.entries(state.sources).map(([name,at])=>`<article class="panel"><h2>${esc(name)}</h2><span class="pill">${at?'ЕСТЬ ПОЛУЧЕННЫЕ СНИМКИ':'ИСТОЧНИК НЕ ПОДКЛЮЧЁН'}</span><p class="muted">${at?'Последнее наблюдение: '+date(at)+' МСК':'Получение линии и условия использования ещё предстоит подтвердить.'}</p></article>`).join('');
 }
 
+function attachConditional(next){
+  const d=next.conditional_paper;if(!d)return;
+  next.banks.unshift(...d.banks.map(b=>({...b,research:true,conditional:true,return:b.pnl/b.initial,quality:{n:0,calibration:[],log_loss:null,brier:null,ece:null,brier_ci95:null}})));
+  for(const p of d.plans)for(const r of p.result?.groups||[]){
+    if(!r.choice||!['won','lost','push'].includes(r.status))continue;
+    const g=p.groups.find(x=>x.map_number===r.map_number),c=r.choice;
+    next.forecasts.push({id:p.id+'_'+r.map_number,conditional:true,bank:p.model+' · условные',fixed_at:p.fixed_at,stake:g.stake,ev:c.estimated_ev,status:r.status==='push'?'void':r.status,pnl:r.payout-g.stake,
+      match:{teams:p.match.teams,tournament:'Условный план · сыгранная карта',format:r.actual.map_name.replace('de_',''),starts_at:p.match.starts_at},
+      quote:{outcome:r.actual.map_name.replace('de_','')+' · '+(c.market==='map_winner'?'Победа '+p.match.teams[c.team_index]:'ТБ '+c.line),market:c.market,odds:c.odds,bookmaker:p.bookmaker,observed_at:p.quote_observed_at},
+      prediction:{p:c.p,version:d.policy.version},paper:{forecast_id:p.forecast_id,match_id:p.match.id},
+      explanation:'Условный выбор и коэффициент сохранены до старта. Этот вариант сыгран; остальные не входят в статистику. Состав при фиксации: '+p.roster_status});
+  }
+  if(!next.banks.some(x=>x.name===bank))bank=d.banks[0].name;
+}
 function attachPaper(next){
   const r=next.research_paper;if(!r){if(!next.banks.some(x=>x.name===bank))bank=next.banks[0].name;return;}
   next.banks.unshift({...r,research:true,return:r.pnl/r.initial,quality:{n:0,calibration:[],log_loss:null,brier:null,ece:null,brier_ci95:null}});
@@ -274,7 +307,7 @@ async function refresh(){
     if(!response.ok)throw Error('HTTP '+response.status);
     const next=await response.json();
     if(next.schema_version!==1||!Array.isArray(next.forecasts)||!Array.isArray(next.banks))throw Error('Неподдерживаемый формат данных');
-    attachPaper(next);state=next;$('#error').hidden=true;render();
+    attachConditional(next);attachPaper(next);state=next;$('#error').hidden=true;render();
   }catch(e){$('#error').hidden=false;$('#error').textContent='Не удалось обновить снимок. Последние загруженные данные сохранены на экране. '+e.message;}
   finally{$('#refresh').disabled=false;}
 }
