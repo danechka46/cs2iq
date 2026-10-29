@@ -193,7 +193,7 @@ function renderHistory(){
     (scope==='all'||scope==='done'&&done(r)||scope==='waiting'&&!done(r)&&new Date(r.starts_at)<=Date.now()));
   const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',void:'Возврат',cancelled:'Отмена / изменение матча',not_played:'Карта не сыграна',skip:'Пропуск',no_bet:'Завершён · без ставки',waiting:'Ждём результата',active:'Ждём результата',pending:'Ждём подтверждения',review:'Результат на проверке'};
   $('#history-count').textContent='Ставок: '+rows.length+' из '+all.length+'. Только зафиксированные позиции; пропуски и несыгранные условные варианты скрыты.';
-  el.innerHTML=rows.length?table(['МАТЧ / ДАТА · МСК','МОДЕЛЬ / КАРТА','СТАВКА','КФ','РЕЗУЛЬТАТ','P&L'],rows.map(r=>'<tr>'+[
+  el.innerHTML=rows.length?table(['МАТЧ / ДАТА · МСК','МОДЕЛЬ / КАРТА','СТАВКА','КФ','РЕЗУЛЬТАТ','P&L'],rows.map(r=>'<tr data-result="'+esc(r.result)+'">'+[
     (r.forecast_id?'<button class="text-button" data-open-match="'+esc(r.forecast_id)+'">'+esc(r.match)+'</button>':esc(r.match))+'<small>'+date(r.starts_at)+'</small>',
     esc(r.model)+'<small>'+esc(r.map)+' · '+esc(r.phase)+'</small>',esc(r.pick),r.odds==null?'—':Number(r.odds).toFixed(2),
     esc(labels[r.result]||r.result)+(r.score?'<small>'+esc(r.score)+'</small>':''),r.pnl==null?'—':money(r.pnl)].map(cell).join('')+'</tr>')):
