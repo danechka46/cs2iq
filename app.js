@@ -171,7 +171,7 @@ function historyRows(data,now=Date.now()){
     if(e.paper?.forecast_id)covered.add(e.paper.forecast_id);
     rows.push({match:e.match.teams.join(' — '),starts_at:e.match.starts_at,model:e.bank,phase:'Прежний банк',
       map:e.paper?.actual?.map_name?.replace('de_','')||e.match.format,pick:e.quote.outcome,odds:e.quote.odds,
-      result:e.status,score:e.paper?.actual?.score?.join(' : ')||'',pnl:e.pnl,forecast_id:e.paper?.forecast_id});
+      result:e.status,reason:e.paper?.resolution_reason,score:e.paper?.actual?.score?.join(' : ')||'',pnl:e.pnl,forecast_id:e.paper?.forecast_id});
   }
   for(const m of matches){
     if(covered.has(m.id))continue;
@@ -191,7 +191,7 @@ function renderHistory(){
   const rows=all.filter(r=>(selected==='all'||r.model===selected||r.model==='—')&&
     [r.match,r.map,r.pick].join(' ').toLowerCase().includes(search)&&
     (scope==='all'||scope==='done'&&done(r)||scope==='waiting'&&!done(r)&&new Date(r.starts_at)<=Date.now()));
-  const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',void:'Возврат / отмена',cancelled:'Отмена / изменение матча',not_played:'Карта не сыграна',skip:'Пропуск',no_bet:'Завершён · без ставки',waiting:'Ждём результата',active:'Ждём результата',pending:'Ждём подтверждения',review:'Результат на проверке'};
+  const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',void:'Возврат',cancelled:'Отмена / изменение матча',not_played:'Карта не сыграна',skip:'Пропуск',no_bet:'Завершён · без ставки',waiting:'Ждём результата',active:'Ждём результата',pending:'Ждём подтверждения',review:'Результат на проверке'};
   $('#history-count').textContent='Ставок: '+rows.length+' из '+all.length+'. Только зафиксированные позиции; пропуски и несыгранные условные варианты скрыты.';
   el.innerHTML=rows.length?table(['МАТЧ / ДАТА · МСК','МОДЕЛЬ / КАРТА','СТАВКА','КФ','РЕЗУЛЬТАТ','P&L'],rows.map(r=>'<tr>'+[
     (r.forecast_id?'<button class="text-button" data-open-match="'+esc(r.forecast_id)+'">'+esc(r.match)+'</button>':esc(r.match))+'<small>'+date(r.starts_at)+'</small>',
