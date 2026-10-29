@@ -179,7 +179,7 @@ function historyRows(data,now=Date.now()){
       pick:'Ставка не фиксировалась',odds:null,result:m.status==='settled'?'no_bet':m.status==='void'?'cancelled':m.status==='review'?'review':'waiting',
       score:m.maps.filter(x=>x.actual).map(x=>x.map_name.replace('de_','')+' '+x.actual.score.join(':')).filter((x,i,a)=>a.indexOf(x)===i).join(' · '),pnl:null,forecast_id:m.id});
   }
-  return rows.sort((a,b)=>new Date(b.starts_at)-new Date(a.starts_at)||a.match.localeCompare(b.match)||a.model.localeCompare(b.model));
+  return rows.filter(r=>typeof r.odds==='number'&&Number.isFinite(r.odds)&&r.odds>1).sort((a,b)=>new Date(b.starts_at)-new Date(a.starts_at)||a.match.localeCompare(b.match)||a.model.localeCompare(b.model));
 }
 function renderHistory(){
   const el=$('#history-table');if(!el)return;
@@ -192,7 +192,7 @@ function renderHistory(){
     [r.match,r.map,r.pick].join(' ').toLowerCase().includes(search)&&
     (scope==='all'||scope==='done'&&done(r)||scope==='waiting'&&!done(r)&&new Date(r.starts_at)<=Date.now()));
   const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',void:'Возврат / отмена',cancelled:'Отмена / изменение матча',not_played:'Карта не сыграна',skip:'Пропуск',no_bet:'Завершён · без ставки',waiting:'Ждём результата',active:'Ждём результата',pending:'Ждём подтверждения',review:'Результат на проверке'};
-  $('#history-count').textContent='Записей: '+rows.length+' из '+all.length+'. Полная сохранённая история без ограничения последними 20 матчами.';
+  $('#history-count').textContent='Ставок: '+rows.length+' из '+all.length+'. Только зафиксированные позиции; пропуски и несыгранные условные варианты скрыты.';
   el.innerHTML=rows.length?table(['МАТЧ / ДАТА · МСК','МОДЕЛЬ / КАРТА','СТАВКА','КФ','РЕЗУЛЬТАТ','P&L'],rows.map(r=>'<tr>'+[
     (r.forecast_id?'<button class="text-button" data-open-match="'+esc(r.forecast_id)+'">'+esc(r.match)+'</button>':esc(r.match))+'<small>'+date(r.starts_at)+'</small>',
     esc(r.model)+'<small>'+esc(r.map)+' · '+esc(r.phase)+'</small>',esc(r.pick),r.odds==null?'—':Number(r.odds).toFixed(2),
