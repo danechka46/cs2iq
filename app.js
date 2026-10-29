@@ -11,7 +11,7 @@ const table=(heads,rows)=>`<div class="table-wrap"><table><thead><tr>${heads.map
 const cell=v=>`<td>${v}</td>`;
 const closed=e=>['won','lost','void','cancelled'].includes(e.status);
 const statuses={review:'Результат на проверке',won:'Выигрыш',lost:'Проигрыш',void:'Возврат',cancelled:'Отмена',active:'Виртуальная позиция',pending:'Ждём подтверждения'};
-const titles={overview:'ML Банк',forecasts:'Прогнозы CS2',models:'Сравнение моделей',journal:'Журнал эксперимента',sources:'Источники и правила'};
+const titles={overview:'ML Банк',forecasts:'Прогнозы CS2',models:'Сравнение моделей',journal:'Журнал эксперимента',sources:'Источники и правила',history:'История прогнозов'};
 function nav(p,updateHash=true){
   if(!titles[p])p='forecasts'; page=p;
   document.body.dataset.page=p;
@@ -61,7 +61,7 @@ function renderMatchFeed(){
   const coverage=feed.coverage==='live_only'?'Открытый канал: только текущие матчи, не полное расписание.':'Текущие и предстоящие матчи.';
   $('#match-feed-status').textContent=coverage+' Снимок: '+date(feed.observed_at)+' МСК.'+(feed.status==='error'?' Новое обновление не удалось; показан предыдущий снимок.':stale?' Данные устарели.':' Обновление раз в час.');
   const labels={live:'В игре на момент снимка',upcoming:'Предстоящий матч',completed:'Завершён по данным источника'};
-  $('#match-feed-cards').innerHTML=feed.matches.length?feed.matches.map(m=>`<article class="schedule-card"><div class="schedule-top"><span>${esc(m.tournament)} · ${esc(m.format)}</span><span class="schedule-status">${esc(labels[m.status]||m.status)}</span></div><h3>${esc(m.teams[0])}<span>vs</span>${esc(m.teams[1])}</h3><div class="schedule-info"><span>Начало ${date(m.starts_at)} МСК</span>${m.score?`<b>Счёт по картам ${m.score.join(' : ')}</b>`:''}</div><div class="schedule-bottom"><span>Позиция банка не открыта</span><small>Вероятность, EV и позиция появятся только после проверки модели и линии.</small></div></article>`).join(''):empty('В канале нет текущих матчей','Источник ответил успешно. Отсутствие матча в этом канале не означает отмену события.');
+  $('#match-feed-cards').innerHTML=feed.matches.some(m=>m.status!=='completed')?feed.matches.filter(m=>m.status!=='completed').map(m=>`<article class="schedule-card"><div class="schedule-top"><span>${esc(m.tournament)} · ${esc(m.format)}</span><span class="schedule-status">${esc(labels[m.status]||m.status)}</span></div><h3>${esc(m.teams[0])}<span>vs</span>${esc(m.teams[1])}</h3><div class="schedule-info"><span>Начало ${date(m.starts_at)} МСК</span>${m.score?`<b>Счёт по картам ${m.score.join(' : ')}</b>`:''}</div><div class="schedule-bottom"><span>Позиция банка не открыта</span><small>Вероятность, EV и позиция появятся только после проверки модели и линии.</small></div></article>`).join(''):empty('В канале нет текущих матчей','Источник ответил успешно. Отсутствие матча в этом канале не означает отмену события.');
 }
 function renderBookmakers(){
   const data=state.bookmaker_odds;
@@ -146,6 +146,59 @@ function rosterNote(m){
 function availableFor(m,model){
   return (m.available_models||Object.keys(m.maps?.[0]?.models||{CatBoost:true})).includes(model);
 }
+function currentMatch(m,now=Date.now()){
+  return m.status==='waiting'&&now-new Date(m.starts_at).getTime()<18*3600000;
+}
+function historyRows(data,now=Date.now()){
+  const matches=(data.model_forecasts||data.research_forward)?.matches||[];
+  const rows=[],covered=new Set();
+  const plans=data.conditional_paper?.plans||[];
+  for(const p of plans){
+    covered.add(p.forecast_id);
+    for(const g of p.groups){
+      const r=p.result?.groups.find(x=>x.map_number===g.map_number),c=r?.choice;
+      const hasPick=Object.values(g.choices).some(Boolean);
+      const pick=c?(c.market==='map_winner'?'Победа '+p.match.teams[c.team_index]:'ТБ '+String(c.line).replace('.',',')):
+        r?'Пропуск':hasPick?'Условный план · ждём сыгранную карту':'Пропуск на всех картах';
+      rows.push({match:p.match.teams.join(' — '),starts_at:p.match.starts_at,model:p.model,phase:'Условный эксперимент',
+        map:r?.actual?.map_name?.replace('de_','')||'Карта №'+g.map_number,pick,odds:c?.odds??null,
+        result:r?.status||(hasPick?'waiting':'skip'),score:r?.actual?.score?.join(' : ')||'',
+        pnl:c&&r.payout!=null?r.payout-g.stake:null,forecast_id:p.forecast_id});
+    }
+  }
+  for(const e of data.forecasts||[]){
+    if(e.conditional)continue;
+    if(e.paper?.forecast_id)covered.add(e.paper.forecast_id);
+    rows.push({match:e.match.teams.join(' — '),starts_at:e.match.starts_at,model:e.bank,phase:'Прежний банк',
+      map:e.paper?.actual?.map_name?.replace('de_','')||e.match.format,pick:e.quote.outcome,odds:e.quote.odds,
+      result:e.status,score:e.paper?.actual?.score?.join(' : ')||'',pnl:e.pnl,forecast_id:e.paper?.forecast_id});
+  }
+  for(const m of matches){
+    if(covered.has(m.id))continue;
+    rows.push({match:m.teams.join(' — '),starts_at:m.starts_at,model:'—',phase:'Прогноз без позиции',map:'—',
+      pick:'Ставка не фиксировалась',odds:null,result:m.status==='settled'?'no_bet':m.status==='void'?'cancelled':m.status==='review'?'review':'waiting',
+      score:m.maps.filter(x=>x.actual).map(x=>x.map_name.replace('de_','')+' '+x.actual.score.join(':')).filter((x,i,a)=>a.indexOf(x)===i).join(' · '),pnl:null,forecast_id:m.id});
+  }
+  return rows.sort((a,b)=>new Date(b.starts_at)-new Date(a.starts_at)||a.match.localeCompare(b.match)||a.model.localeCompare(b.model));
+}
+function renderHistory(){
+  const el=$('#history-table');if(!el)return;
+  const selected=$('#history-model').value||'all',search=$('#history-search').value.toLowerCase(),scope=$('#history-status').value;
+  const all=historyRows(state),models=[...new Set(all.map(r=>r.model).filter(m=>m!=='—'))].sort();
+  $('#history-model').innerHTML='<option value="all">Все модели</option>'+models.map(m=>'<option>'+esc(m)+'</option>').join('');
+  $('#history-model').value=models.includes(selected)?selected:'all';
+  const done=r=>['won','lost','push','void','cancelled','not_played','no_bet'].includes(r.result)||r.result==='skip'&&new Date(r.starts_at)<=Date.now();
+  const rows=all.filter(r=>(selected==='all'||r.model===selected||r.model==='—')&&
+    [r.match,r.map,r.pick].join(' ').toLowerCase().includes(search)&&
+    (scope==='all'||scope==='done'&&done(r)||scope==='waiting'&&!done(r)&&new Date(r.starts_at)<=Date.now()));
+  const labels={won:'Выигрыш',lost:'Проигрыш',push:'Возврат',void:'Возврат / отмена',cancelled:'Отмена / изменение матча',not_played:'Карта не сыграна',skip:'Пропуск',no_bet:'Завершён · без ставки',waiting:'Ждём результата',active:'Ждём результата',pending:'Ждём подтверждения',review:'Результат на проверке'};
+  $('#history-count').textContent='Записей: '+rows.length+' из '+all.length+'. Полная сохранённая история без ограничения последними 20 матчами.';
+  el.innerHTML=rows.length?table(['МАТЧ / ДАТА · МСК','МОДЕЛЬ / КАРТА','СТАВКА','КФ','РЕЗУЛЬТАТ','P&L'],rows.map(r=>'<tr>'+[
+    (r.forecast_id?'<button class="text-button" data-open-match="'+esc(r.forecast_id)+'">'+esc(r.match)+'</button>':esc(r.match))+'<small>'+date(r.starts_at)+'</small>',
+    esc(r.model)+'<small>'+esc(r.map)+' · '+esc(r.phase)+'</small>',esc(r.pick),r.odds==null?'—':Number(r.odds).toFixed(2),
+    esc(labels[r.result]||r.result)+(r.score?'<small>'+esc(r.score)+'</small>':''),r.pnl==null?'—':money(r.pnl)].map(cell).join('')+'</tr>')):
+    empty('Записей по этому фильтру нет','Выбери все записи или другой статус.');
+}
 function renderForward(){
   const data=state.model_forecasts||state.research_forward;
   if(!data){$('#forward-cards').innerHTML=empty('Ждём первый автоматический расчёт','Будет роспись вероятностей для каждого названия карты.');return;}
@@ -161,12 +214,12 @@ function renderForward(){
   const selectedModel=modelSelect.value;
 
   const stale=Date.now()-new Date(data.last_run_at)>10*3600000;
-  $('#forward-status').textContent='Расчёт '+date(data.last_run_at)+' МСК · '+data.conditional_matches+' серий ожидают · '+data.scored_maps+' сыгранных карт оценено'+(stale?' · обновление задерживается':'');
+  $('#forward-status').textContent='Расчёт '+date(data.last_run_at)+' МСК · '+data.matches.filter(m=>currentMatch(m)).length+' актуальных серий · '+data.scored_maps+' сыгранных карт оценено'+(stale?' · обновление задерживается':'');
   const winner=data.metrics_by_model?.[selectedModel]?.winner_metrics||data.winner_metrics;
   $('#forward-stats').textContent=winner?selectedModel+' · по заранее сохранённым прогнозам проверено '+winner.n+' сыгранных карт · Brier победителя '+num(winner.brier)+' · верных '+pct(winner.accuracy):selectedModel+' · новые прогнозы фиксируются до игры. Статистика появится после завершения этих матчей; прибыльность не доказана.';
   if(selectedModel==='XGBoost'&&data.comparison?.calibration_weights.XGBoost.winner===0)$('#forward-stats').textContent+=' XGBoost: настройка выбрала 50/50 для победителя; вероятности ТБ остаются отдельными.';
   const labels={waiting:'Ожидаем игру / результат',settled:'Сыгранные карты рассчитаны',void:'Отмена или изменение матча',review:'Результат требует проверки'};
-  const matches=data.matches.map(m=>({...m,selected_model:selectedModel,maps:m.maps.map(x=>({...x,...(x.models?.[selectedModel]||{})}))})).filter(m=>filter==='waiting'?m.status==='waiting':m.status!=='waiting');
+  const matches=data.matches.map(m=>({...m,selected_model:selectedModel,maps:m.maps.map(x=>({...x,...(x.models?.[selectedModel]||{})}))})).filter(m=>filter==='archive'?!currentMatch(m):filter==='resolved'?m.status!=='waiting':currentMatch(m)&&(filter==='upcoming'?new Date(m.starts_at)>Date.now():filter==='live'?new Date(m.starts_at)<=Date.now():true));
   $('#forward-cards').innerHTML=matches.length?matches.map(m=>{
     const board=state.bookmaker_odds?.boards.find(b=>b.forecast_id===m.id);
     const available=availableFor(m,selectedModel);
@@ -182,7 +235,10 @@ function openMatch(id){
   if(!match&&oldMatch){$('#detail-content').textContent='Новые модели запущены после фиксации прежнего прогноза. Прогнозы задним числом не создаются.\n\n'+JSON.stringify(oldMatch,null,2);$('#details').showModal();return;}
 
   if(!match)return;
-  $('#forward-filter').value=match.status==='waiting'?'waiting':'resolved';renderForward();nav('forecasts');
+  if(!$('#forward-filter option[value=resolved]'))$('#forward-filter').insertAdjacentHTML('beforeend','<option value=resolved>Архив · рассчитанные</option><option value=archive>Архив · ждут проверки</option>');
+  $('#forward-filter').value=currentMatch(match)?'waiting':'resolved';
+  if(match.status==='waiting'&&!currentMatch(match))$('#forward-filter').value='archive';
+  renderForward();nav('forecasts');
   const detail=[...document.querySelectorAll('#forward-cards details')].find(d=>d.dataset.forecastId===match.id);
   if(detail){detail.open=true;detail.scrollIntoView({block:'start',behavior:'smooth'});}
 }
@@ -204,7 +260,7 @@ function render(){
   const exposure=b.equity?b.reserved/b.equity:0;
   $('#exposure').textContent=pct(exposure)+' / 10%';$('#meter').style.width=Math.min(100,exposure*1000)+'%';
   $('#active-preview').innerHTML=positionTable(state.forecasts.filter(e=>e.bank===bank&&!closed(e)).slice(0,5));
-  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();renderSourceHealth();renderConditional();
+  renderForecasts();renderMatchFeed();renderBookmakers();renderForward();renderPaper();renderSuiteComparison();renderSourceHealth();renderConditional();renderHistory();
   $('#model-table').innerHTML=table(['МОДЕЛЬ','КАПИТАЛ','ROI','ПРОСАДКА','ПОЗИЦИЙ','ОБЩАЯ N','LOG LOSS','BRIER','ECE','95% CI BRIER'],state.banks.map(x=>'<tr>'+[`${esc(x.name)}<small>${state.registered_models.includes(x.name)?'Версия зарегистрирована':x.research?'Экспериментальные позиции карт':state.model_forecasts?.model_names.includes(x.name)?'Прогнозы карт работают · строгий банк отдельно':state.research?.model===x.name?'Обучена для исследования · не подключена':'Не подключена'}</small>`,money(x.equity),pct(x.roi),pct(x.max_drawdown),x.positions,x.quality.n,num(x.quality.log_loss),num(x.quality.brier),num(x.quality.ece),x.quality.brier_ci95?x.quality.brier_ci95.map(num).join(' — '):'Недостаточно данных'].map(cell).join('')+'</tr>'));
   const mapData=state.map_data;
   $('#map-data-status').textContent=mapData?'Cito API · согласованных записей карт: '+mapData.maps+' · серий: '+mapData.matches+'. Снимок: '+date(mapData.observed_at)+' МСК. На этой истории обучены модели. Новые условные прогнозы фиксируются заранее для всех поддерживаемых карт.':'Сводка источника счетов карт ещё не опубликована. Модели карт не подключены.';
@@ -313,7 +369,7 @@ async function refresh(){
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest('button');if(!t)return;
-  if(t.dataset.page)nav(t.dataset.page);
+  if(t.dataset.page){if(t.dataset.page==='forecasts'&&state){$('#forward-filter').value='waiting';renderForward();}nav(t.dataset.page);}
   if(t.dataset.openMatch&&state)openMatch(t.dataset.openMatch);
   if(t.dataset.showCatboost&&state){$('#forward-model').value='CatBoost';openMatch(t.dataset.showCatboost);}
   if(t.dataset.bank){bank=t.dataset.bank;render();}
@@ -331,3 +387,6 @@ $('#forward-filter').addEventListener('change',()=>{if(state)renderForward();});
 $('#forward-line').addEventListener('change',()=>{if(state)renderForward();});
 
 $('#forward-model').addEventListener('change',()=>{if(state)renderForward();});
+
+for(const id of ['history-model','history-status'])$('#'+id).addEventListener('change',()=>{if(state)renderHistory();});
+$('#history-search').addEventListener('input',()=>{if(state)renderHistory();});
